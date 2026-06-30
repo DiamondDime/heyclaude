@@ -149,8 +149,12 @@ def ask_claude(prompt: str, session_file: Path | None = None,
 
     # claude can exit 0 yet still report a logical error (e.g. max turns / error
     # subtypes). Don't speak that error text back as if it were a normal answer.
+    # NOTE: do NOT run the usage-limit/auth classifier on this result body — it's
+    # Claude's free-form task narration, which routinely quotes a sub-command's
+    # "unauthorized"/"rate limit" and would misfire into a wrong spoken warning.
+    # Classification is reserved for the stderr control-plane path above.
     if data.get("is_error"):
-        _raise_claude_error(
+        raise RuntimeError(
             data.get("result") or data.get("subtype") or "claude reported an error"
         )
 

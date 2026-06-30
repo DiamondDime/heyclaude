@@ -101,10 +101,10 @@ async def on_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Reject oversized notes up front (before paying for download + Whisper).
     voice = update.message.voice
     if voice.duration and voice.duration > MAX_VOICE_SECONDS:
-        await update.message.reply_text("🛑 That voice note is too long — keep it under 5 minutes.")
+        await _safe_say(update, "That voice note is too long — keep it under 5 minutes.")
         return
     if voice.file_size and voice.file_size > MAX_VOICE_BYTES:
-        await update.message.reply_text("🛑 That voice note is too large.")
+        await _safe_say(update, "That voice note is too large to process.")
         return
 
     try:

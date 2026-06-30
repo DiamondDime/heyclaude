@@ -143,18 +143,21 @@ notes.
 
 ### Keep it running (optional)
 
-`codriver start` runs in the foreground and stops if you close the terminal or
-the Mac sleeps. To run it as a background service that **starts at login,
-restarts on crash, and keeps the Mac awake** (via `caffeinate`):
+`codriver start` runs in the foreground and stops if you close the terminal. To
+run it as a background service that **starts at login and restarts on crash**:
 
 ```bash
 codriver install-service     # install + start the launchd agent
-codriver uninstall-service   # remove it
+codriver uninstall-service   # stop + remove it
 ```
 
-Logs land in `~/.config/codriver/bot.log`. Note: a sleeping Mac will still pause
-the bot — the service prevents *system* sleep while running, but if you close the
-lid, polling stops until you wake it.
+The service runs under `caffeinate -i`, which prevents *idle* system sleep **on
+battery** (so the bot keeps polling while you drive). Caveats: closing the laptop
+lid still pauses it, and once installed, `codriver stop` won't keep it down —
+launchd relaunches it, so use **`codriver uninstall-service`** to stop it for
+good. Logs land in `~/.config/codriver/bot.log`. Save your token via `codriver
+init` (not just an env var) before installing — the service runs with a clean
+environment.
 
 ---
 

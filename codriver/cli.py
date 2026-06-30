@@ -12,9 +12,11 @@ CODRIVER_CONFIG_DIR), OUTSIDE the project repo. Secrets are never printed.
 """
 
 import argparse
+import asyncio
 import getpass
 import os
 import platform
+import plistlib
 import shutil
 import signal
 import subprocess
@@ -212,16 +214,21 @@ def validate_workdir(path: Path, home: Path) -> str | None:
     if home.is_relative_to(p):
         return "your home folder is inside it"
 
-    sensitive_names = (
-        "Desktop", "Documents", "Downloads", "Library", "Movies", "Music",
-        "Pictures", "Applications", "Projects", "code", "src",
-    )
-    if p.parent == home and p.name in sensitive_names:
+    # APFS is case-insensitive by default, so compare case-folded: ~/documents
+    # and ~/Documents are the SAME directory and must both be refused.
+    sensitive_names = {
+        n.casefold() for n in (
+            "Desktop", "Documents", "Downloads", "Library", "Movies", "Music",
+            "Pictures", "Applications", "Projects", "code", "src",
+        )
+    }
+    if p.parent == home and p.name.casefold() in sensitive_names:
         return f"{p.name} holds real files — use a dedicated subfolder instead"
 
+    pcf = str(p).casefold()
     for name in (".ssh", ".config", ".aws", ".gnupg", ".kube"):
-        s = (home / name)
-        if p == s or p.is_relative_to(s):
+        scf = str(home / name).casefold()
+        if pcf == scf or pcf.startswith(scf + "/"):
             return f"it's inside {name}"
     return None
 
@@ -518,6 +525,13 @@ def _supervise_bot() -> None:
     restarts: list[float] = []
     backoff = 3
     while True:
+        # PTB's run_polling closes the event loop on exit (close_loop=True). A
+        # second bot.main() would then call run_until_complete on that CLOSED
+        # loop -> "Event loop is closed" -> instant re-crash, defeating the whole
+        # restart feature. Hand PTB a FRESH loop each iteration so a restart
+        # actually works. (Verified: without this, the bot dies permanently
+        # ~15s after the first mid-drive crash.)
+        asyncio.set_event_loop(asyncio.new_event_loop())
         try:
             bot.main()          # returns cleanly when PTB handles SIGINT/SIGTERM
             return
@@ -617,32 +631,32 @@ def _service_plist_path() -> Path:
     return Path.home() / "Library" / "LaunchAgents" / f"{SERVICE_LABEL}.plist"
 
 
-def _build_plist() -> str:
+def _build_plist() -> bytes:
     # Run via `python -m codriver.cli start` so it works regardless of where the
-    # `codriver` script landed on PATH. `caffeinate -s` keeps the Mac awake while
-    # the bot runs — KeepAlive restarts a crash but cannot stop system sleep,
-    # which is the likeliest reason a bot goes quiet mid-drive.
+    # `codriver` script landed on PATH. Built with plistlib so paths are escaped
+    # correctly.
     logs = _config_dir()
-    args = [
-        "/usr/bin/caffeinate", "-s",
-        sys.executable, "-m", "codriver.cli", "start",
-    ]
-    items = "".join(f"\n      <string>{a}</string>" for a in args)
-    return (
-        '<?xml version="1.0" encoding="UTF-8"?>\n'
-        '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
-        '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
-        '<plist version="1.0">\n'
-        '  <dict>\n'
-        f'    <key>Label</key>\n    <string>{SERVICE_LABEL}</string>\n'
-        f'    <key>ProgramArguments</key>\n    <array>{items}\n    </array>\n'
-        '    <key>RunAtLoad</key>\n    <true/>\n'
-        '    <key>KeepAlive</key>\n    <true/>\n'
-        f'    <key>StandardOutPath</key>\n    <string>{logs / "bot.log"}</string>\n'
-        f'    <key>StandardErrorPath</key>\n    <string>{logs / "bot.err.log"}</string>\n'
-        '  </dict>\n'
-        '</plist>\n'
-    )
+    plist = {
+        "Label": SERVICE_LABEL,
+        "ProgramArguments": [
+            # `-i` prevents idle system sleep and WORKS ON BATTERY. (`-s` is
+            # AC-power only — useless in a car.) KeepAlive restarts a crash but
+            # cannot stop sleep, which is the likeliest reason a bot goes quiet
+            # mid-drive. Closing the laptop lid still pauses it.
+            "/usr/bin/caffeinate", "-i",
+            sys.executable, "-m", "codriver.cli", "start",
+        ],
+        "RunAtLoad": True,
+        "KeepAlive": True,
+        # launchd agents start with a minimal PATH that EXCLUDES ~/.local/bin
+        # (where `claude` lives) and Homebrew (`ffmpeg`). Without this, the
+        # service starts but every voice note fails to find `claude`. Bake in the
+        # install-time PATH so the service can actually run.
+        "EnvironmentVariables": {"PATH": os.environ.get("PATH", "/usr/bin:/bin")},
+        "StandardOutPath": str(logs / "bot.log"),
+        "StandardErrorPath": str(logs / "bot.err.log"),
+    }
+    return plistlib.dumps(plist)
 
 
 def cmd_install_service(args) -> int:
@@ -651,10 +665,19 @@ def cmd_install_service(args) -> int:
     if not cfg.TOKEN:
         print("Configure the bot first. Run: codriver init", file=sys.stderr)
         return 1
+    # The service runs with a CLEAN environment, so a token that only exists as an
+    # exported env var is invisible to it. Require a persistent source.
+    data = _read_config_toml()
+    has_persistent = bool((data.get("telegram") or {}).get("bot_token")) or bool(cfg._keychain_token())
+    if not has_persistent:
+        print("Your bot token comes from an environment variable, which the "
+              "background service can't see. Run `codriver init` to save it to "
+              "config.toml first.", file=sys.stderr)
+        return 1
     plist = _service_plist_path()
     plist.parent.mkdir(parents=True, exist_ok=True)
     _config_dir().mkdir(parents=True, exist_ok=True)
-    plist.write_text(_build_plist())
+    plist.write_bytes(_build_plist())
     # `load -w` is the widely-compatible enable; ignore "already loaded".
     subprocess.run(["launchctl", "unload", str(plist)],
                    capture_output=True, text=True)

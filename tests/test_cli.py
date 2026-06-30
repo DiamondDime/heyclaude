@@ -43,3 +43,53 @@ def test_allows_dedicated_workspace(tmp_path):
     assert validate_workdir(home / "codriver-workspace", home) is None
     assert validate_workdir(home / "work" / "scratch", home) is None
     assert validate_workdir(tmp_path / "elsewhere", home) is None
+
+
+def test_refuses_miscased_sensitive(tmp_path):
+    # APFS is case-insensitive: ~/documents IS ~/Documents — refuse both.
+    home = tmp_path / "home" / "alice"
+    home.mkdir(parents=True)
+    assert validate_workdir(home / "documents", home) is not None
+    assert validate_workdir(home / "DOCUMENTS", home) is not None
+    assert validate_workdir(home / ".SSH", home) is not None
+    assert validate_workdir(home / ".Ssh" / "keys", home) is not None
+
+
+def _mute_loops(monkeypatch):
+    # Keep the supervisor's per-iteration loop swap from creating real loops in
+    # the test process; the loop fix itself is verified separately.
+    from codriver import cli
+    monkeypatch.setattr(cli.asyncio, "new_event_loop", lambda: None)
+    monkeypatch.setattr(cli.asyncio, "set_event_loop", lambda *_a, **_k: None)
+    monkeypatch.setattr(cli.time, "sleep", lambda *_a, **_k: None)
+
+
+def test_supervisor_restarts_after_crash(monkeypatch):
+    from codriver import cli, bot
+    _mute_loops(monkeypatch)
+    seq = iter([RuntimeError("boom"), None])  # crash once, then clean return
+    calls = []
+
+    def fake_main():
+        calls.append(1)
+        exc = next(seq)
+        if exc:
+            raise exc
+
+    monkeypatch.setattr(bot, "main", fake_main)
+    cli._supervise_bot()
+    assert calls == [1, 1]  # it actually restarted, then stopped on clean exit
+
+
+def test_supervisor_circuit_breaker(monkeypatch):
+    from codriver import cli, bot
+    _mute_loops(monkeypatch)
+    calls = []
+
+    def always_crash():
+        calls.append(1)
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(bot, "main", always_crash)
+    cli._supervise_bot()
+    assert len(calls) == 6  # 5-in-60s breaker trips on the 6th crash
