@@ -7,6 +7,8 @@ from pathlib import Path
 from .config import (
     WORK_DIR,
     CLAUDE_TIMEOUT,
+    CLAUDE_EFFORT,
+    CLAUDE_MODEL,
     SANDBOX_ENABLED,
     SANDBOX_PROFILE,
 )
@@ -22,7 +24,8 @@ log = logging.getLogger("codriver")
 FRESH_SESSION_NOTICE = "Heads up — I started a fresh session. "
 
 
-def build_command(prompt: str, session_file: Path, allow_resume: bool = True) -> list[str]:
+def build_command(prompt: str, session_file: Path, allow_resume: bool = True,
+                  effort: str | None = None, model: str | None = None) -> list[str]:
     cmd = [
         "claude",
         "-p",
@@ -31,6 +34,10 @@ def build_command(prompt: str, session_file: Path, allow_resume: bool = True) ->
         "json",
         "--dangerously-skip-permissions",  # cwd is NOT a jail — see module docstring
     ]
+    if model:
+        cmd += ["--model", model]
+    if effort:
+        cmd += ["--effort", effort]
     if allow_resume and session_file.exists():
         sid = session_file.read_text().strip()
         if sid:
@@ -72,11 +79,14 @@ def _run(cmd: list[str]) -> subprocess.CompletedProcess:
     )
 
 
-def ask_claude(prompt: str, session_file: Path | None = None) -> str:
+def ask_claude(prompt: str, session_file: Path | None = None,
+               effort: str | None = None, model: str | None = None) -> str:
     session_file = session_file or (WORK_DIR / ".codriver_session")
+    effort = effort or CLAUDE_EFFORT
+    model = model or CLAUDE_MODEL
 
     had_session = session_file.exists() and bool(session_file.read_text().strip())
-    proc = _run(build_command(prompt, session_file, allow_resume=True))
+    proc = _run(build_command(prompt, session_file, allow_resume=True, effort=effort, model=model))
 
     fresh = False
     if proc.returncode != 0 and had_session:
@@ -89,7 +99,7 @@ def ask_claude(prompt: str, session_file: Path | None = None) -> str:
             session_file.unlink()
         except FileNotFoundError:
             pass
-        proc = _run(build_command(prompt, session_file, allow_resume=False))
+        proc = _run(build_command(prompt, session_file, allow_resume=False, effort=effort, model=model))
         fresh = True
 
     if proc.returncode != 0:

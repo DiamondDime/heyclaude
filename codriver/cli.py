@@ -242,7 +242,12 @@ def cmd_init(args) -> int:
     config = {
         "telegram": {"bot_token": token, "allowed_user_id": user_id},
         "tts": tts,
-        "claude": {"workdir": str(workdir), "timeout": 600},
+        "claude": {
+            "workdir": str(workdir),
+            "timeout": 600,
+            "effort": "xhigh",
+            "model": "claude-opus-4-8",
+        },
     }
 
     cfg_dir = _config_dir()
@@ -253,6 +258,8 @@ def cmd_init(args) -> int:
     os.chmod(cfg_file, 0o600)
 
     print(f"\nWrote config to {cfg_file} (permissions 0600).")
+    print("Claude defaults to model claude-opus-4-8 at xhigh effort —")
+    print("switch anytime from the bot with /model and /effort.")
     print("Done. Run: codriver start")
     return 0
 

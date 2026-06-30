@@ -170,6 +170,18 @@ except (TypeError, ValueError):
     _toml_timeout = 600
 CLAUDE_TIMEOUT = _int_env("CODRIVER_TIMEOUT", _toml_timeout)
 
+# Reasoning effort for each claude turn. Valid CLI levels: low, medium, high,
+# xhigh, max (an unknown value is ignored by the CLI, falling back to default).
+# Precedence: env CODRIVER_EFFORT > [claude].effort > "xhigh".
+CLAUDE_EFFORT = (
+    os.environ.get("CODRIVER_EFFORT", "") or _toml_str(_claude.get("effort"), "xhigh")
+).strip().lower()
+# Model for each claude turn. Precedence: env CODRIVER_MODEL > [claude].model >
+# "claude-opus-4-8". These are runtime DEFAULTS; the bot can switch live (runtime.py).
+CLAUDE_MODEL = (
+    os.environ.get("CODRIVER_MODEL", "") or _toml_str(_claude.get("model"), "claude-opus-4-8")
+).strip()
+
 
 def is_allowed(user_id: int, allowed: int = ALLOWED_USER_ID) -> bool:
     return user_id == allowed and allowed != 0

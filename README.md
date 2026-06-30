@@ -115,15 +115,35 @@ codriver can speak its replies two ways:
 
 ---
 
+## Controlling Claude from the bot
+
+Claude defaults to **model `claude-opus-4-8` at `xhigh` effort**. Switch either on
+the fly — **type a slash command, or just say it** in a voice note. Changes persist
+across restarts.
+
+| Slash command | Or say | Effect |
+|---|---|---|
+| `/effort low\|medium\|high\|xhigh\|max` | "set effort to high" | reasoning depth per turn |
+| `/model opus\|sonnet\|haiku` | "use opus" / "switch to sonnet" | which Claude model runs |
+| `/config` | "what's my config" | report current model + effort |
+| `/reset` | "new session" | drop session context, start fresh |
+
+Higher effort = deeper reasoning, slower replies. `opus` is the most capable;
+`haiku` is fastest and cheapest.
+
+---
+
 ## How it works
 
 | File | Responsibility |
 |------|----------------|
 | `codriver/config.py` | config loading (env > `config.toml` > defaults), whitelist, paths |
 | `codriver/stt.py`    | local Whisper transcription |
-| `codriver/brain.py`  | runs `claude -p --resume`, keeps session continuity |
+| `codriver/brain.py`  | runs `claude -p --resume` with the chosen model + effort, keeps session continuity |
 | `codriver/tts.py`    | text → spoken OGG/Opus (ElevenLabs or `say`) |
-| `codriver/bot.py`    | Telegram handlers and wiring |
+| `codriver/bot.py`    | Telegram handlers (voice + slash commands) and wiring |
+| `codriver/commands.py` | parses in-bot commands (effort / model / config / reset) |
+| `codriver/runtime.py`  | live-switchable effort + model, persisted to `runtime.json` |
 | `codriver/cli.py`    | `init` / `start` / `stop` / `status` |
 
 Transcription runs locally with Whisper. Replies are encoded as mono Opus, the
