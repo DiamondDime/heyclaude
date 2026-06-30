@@ -83,13 +83,26 @@ Pure-function tests (no network, no token, no model download):
 
 This bot is a **remote-code-execution channel into your Mac**.
 
-1. **Whitelist your user ID** (`is_allowed`) — enforced; without it anyone who
-   finds the bot can drive your machine.
-2. **Sandbox cwd** — Claude runs only in `~/codriver/sandbox` on a throwaway
-   branch. Never point `CODRIVER_WORKDIR` at a real repo while using
-   `--dangerously-skip-permissions`.
-3. **Secrets** — bot token + IDs live in `.env` (gitignored). A leaked token = a
-   shell. Rotate via BotFather if exposed.
+1. **Whitelist your user ID** (`is_allowed`) — enforced. With
+   `--dangerously-skip-permissions`, this single-user whitelist is the **only
+   always-on boundary** between a Telegram message and full host compromise.
+2. **cwd is NOT a jail.** `--dangerously-skip-permissions` gives Claude
+   unrestricted whole-filesystem and network access. `cwd=~/codriver/sandbox` is
+   only a *working directory* — Claude can still `cat ~/.ssh/id_rsa`,
+   `curl`-exfiltrate, `rm -rf ~`, or read any repo on the machine. Do not rely on
+   cwd for confinement. For a real OS boundary, set `CODRIVER_SANDBOX=1` to wrap
+   each `claude` call in the bundled `sandbox-exec` profile
+   (`codriver/codriver.sb`), which denies writes outside the workdir and reads of
+   `~/.ssh`/`~/.aws`/etc. (validate the profile against a live run first — it is
+   off by default). Stronger still: run the bot under a dedicated low-privilege
+   macOS user, or inside a container/VM.
+3. **Secrets — keep them off Claude's path.** `.env` lives at `~/codriver/.env`,
+   which is `../.env` from the sandbox cwd — a skip-permissions or prompt-injected
+   Claude can `cat ../.env` and steal the token. Prefer the **macOS Keychain**:
+   `security add-generic-password -s codriver-bot -a "$USER" -w '<token>'` — the
+   bot reads it automatically when `TELEGRAM_BOT_TOKEN` is unset. A leaked token =
+   a shell; **rotate the current BotFather token** since it has been on disk
+   adjacent to the sandbox.
 4. Before pointing this at real repos, implement hook-based voice approval and
    run a full security audit on the whole pipeline.
 

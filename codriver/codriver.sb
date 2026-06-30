@@ -1,0 +1,34 @@
+;; codriver.sb — macOS sandbox-exec profile for confining the `claude` CLI.
+;;
+;; Opt-in: set CODRIVER_SANDBOX=1. brain.py invokes:
+;;   sandbox-exec -D WORK=<workdir> -D HOME=<home> -f codriver.sb claude ...
+;;
+;; cwd is NOT a jail under --dangerously-skip-permissions, so this profile adds a
+;; real OS boundary: Claude cannot write outside the sandbox workdir and cannot
+;; read high-value secrets, while still reaching its own state + the network it
+;; legitimately needs to talk to Anthropic.
+;;
+;; NOTE: deny rules are conservative but UNVERIFIED against a live `claude` run in
+;; this environment. Validate end-to-end before relying on it; over-tight rules
+;; can break Claude mid-drive. Later rules override earlier ones.
+
+(version 1)
+(allow default)
+
+;; --- Filesystem writes: deny under HOME, then re-allow what Claude needs. ---
+(deny file-write* (subpath (param "HOME")))
+(allow file-write* (subpath (param "WORK")))
+(allow file-write* (subpath (string-append (param "HOME") "/.claude")))
+(allow file-write* (subpath (string-append (param "HOME") "/.cache")))
+
+;; Temp dirs and /dev/null are always writable.
+(allow file-write* (subpath "/tmp"))
+(allow file-write* (subpath "/private/tmp"))
+(allow file-write* (subpath "/private/var/folders"))
+(allow file-write* (literal "/dev/null"))
+
+;; --- Block exfiltration reads of high-value secrets. ---
+(deny file-read* (subpath (string-append (param "HOME") "/.ssh")))
+(deny file-read* (subpath (string-append (param "HOME") "/.aws")))
+(deny file-read* (subpath (string-append (param "HOME") "/.gnupg")))
+(deny file-read* (subpath (string-append (param "HOME") "/.config/gcloud")))

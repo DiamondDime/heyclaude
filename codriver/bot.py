@@ -45,9 +45,15 @@ async def on_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         async with _lock:
             result = await asyncio.to_thread(ask_claude, text, SESSION_FILE)
         ogg = await asyncio.to_thread(to_voice_ogg, result)
-        with open(ogg, "rb") as f:
-            await update.message.reply_voice(voice=f)
-        os.remove(ogg)
+        # Always unlink the temp OGG, even if reply_voice raises (flaky car signal,
+        # Telegram 5xx, timeout). Otherwise every failed send leaks a file and the
+        # user — told to "retry" — multiplies the leak over a long drive.
+        try:
+            with open(ogg, "rb") as f:
+                await update.message.reply_voice(voice=f)
+        finally:
+            if os.path.exists(ogg):
+                os.remove(ogg)
     except Exception as e:  # never die silently mid-drive
         log.exception("task failed")
         await update.message.reply_text(f"⚠️ Error: {e}. Session is saved — retry.")
