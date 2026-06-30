@@ -222,7 +222,9 @@ def validate_workdir(path: Path, home: Path) -> str | None:
             "Pictures", "Applications", "Projects", "code", "src",
         )
     }
-    if p.parent == home and p.name.casefold() in sensitive_names:
+    # Case-fold the parent comparison too (realpath doesn't canonicalize case on
+    # macOS), so a mis-cased home prefix can't slip a sensitive dir past.
+    if str(p.parent).casefold() == str(home).casefold() and p.name.casefold() in sensitive_names:
         return f"{p.name} holds real files — use a dedicated subfolder instead"
 
     pcf = str(p).casefold()
@@ -652,7 +654,8 @@ def _build_plist() -> bytes:
         # (where `claude` lives) and Homebrew (`ffmpeg`). Without this, the
         # service starts but every voice note fails to find `claude`. Bake in the
         # install-time PATH so the service can actually run.
-        "EnvironmentVariables": {"PATH": os.environ.get("PATH", "/usr/bin:/bin")},
+        # `or` (not a default arg) so a set-but-empty PATH also gets the fallback.
+        "EnvironmentVariables": {"PATH": os.environ.get("PATH") or "/usr/bin:/bin"},
         "StandardOutPath": str(logs / "bot.log"),
         "StandardErrorPath": str(logs / "bot.err.log"),
     }

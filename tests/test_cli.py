@@ -55,6 +55,16 @@ def test_refuses_miscased_sensitive(tmp_path):
     assert validate_workdir(home / ".Ssh" / "keys", home) is not None
 
 
+def test_refuses_miscased_home_prefix(tmp_path):
+    # User types their home path in the wrong case (~/home/ALICE) before a
+    # sensitive subdir — realpath doesn't canonicalize case, so the casefolded
+    # parent check must still refuse it.
+    home = tmp_path / "home" / "alice"
+    home.mkdir(parents=True)
+    miscased_home = tmp_path / "home" / "ALICE"
+    assert validate_workdir(miscased_home / "Documents", home) is not None
+
+
 def _mute_loops(monkeypatch):
     # Keep the supervisor's per-iteration loop swap from creating real loops in
     # the test process; the loop fix itself is verified separately.
