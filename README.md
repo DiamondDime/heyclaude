@@ -1,110 +1,159 @@
-# Voice Co-Driver
+# codriver
 
-Talk to your home Mac's `claude` CLI from the car via Telegram voice messages.
-Dictate a request, Claude works on your subscription (no API key), and you get a
-spoken voice note back. The session is continuous across the drive via a
-persisted `session_id`.
+Talk to **Claude Code** by voice while you drive.
 
-## Architecture
-
-A Python bot runs on the Mac. It receives a Telegram **voice note**, transcribes
-it locally (Whisper), pipes the text into the `claude` CLI in headless print mode
-(`claude -p --resume`), captures the text result, converts it to speech
-(`say` → OGG/Opus), and replies as a Telegram **voice message**.
+Send a Telegram voice note from your phone; the bot on your Mac transcribes it,
+runs it through the `claude` CLI, and replies with a spoken voice note. Claude
+works on **your Claude Code subscription** — no paid Anthropic API key required.
 
 ```
-voice note → Whisper STT → claude -p --resume → say + ffmpeg → OGG/Opus → sendVoice
+voice note → Whisper (local) → claude -p --resume → TTS → voice reply
 ```
 
-## Modules
+Each drive is one continuous conversation: the session id is persisted, so
+follow-up requests keep their context.
+
+---
+
+## Safety — read this first
+
+codriver is a **remote-code-execution channel into your Mac.** Treat it that way.
+
+- It runs `claude --dangerously-skip-permissions`, so Claude executes commands,
+  edits files, and hits the network **without asking for approval.**
+- The **only** thing standing between a Telegram message and your machine is the
+  single allowed Telegram user ID. There is no second guard. Anyone who can post
+  to your bot as that user gets a shell on your Mac.
+- A working directory is **not** a sandbox. Claude can read and write outside it.
+  Point codriver at a **dedicated, throwaway workspace** — never your home folder
+  and never a real repo with secrets, SSH keys, or production code.
+- Use a fresh Telegram bot token, keep it out of any directory Claude can reach,
+  and rotate it if it is ever exposed.
+
+If that trade-off is not acceptable to you, do not run this.
+
+---
+
+## Requirements
+
+- **macOS** (uses the `say` voice and Homebrew `ffmpeg`)
+- **ffmpeg** — `brew install ffmpeg`
+- A working **Claude Code login** (`claude` on your PATH, already signed in)
+- A **Telegram bot** token from [@BotFather](https://t.me/BotFather) and your
+  numeric user id from [@userinfobot](https://t.me/userinfobot)
+- Python **3.11+**
+- Optional: an **ElevenLabs** API key for higher-quality speech
+
+---
+
+## Install
+
+```bash
+pipx install .
+```
+
+This installs the `codriver` command.
+
+---
+
+## Set up: `codriver init`
+
+```bash
+codriver init
+```
+
+The wizard walks you through everything:
+
+1. **Safety notice** — the warning above, up front.
+2. **Telegram bot token** — pasted and verified against Telegram (it shows your
+   bot's `@username` on success).
+3. **Telegram user id** — the numeric id allowed to talk to the bot.
+4. **TTS backend** — pick `elevenlabs` or `say` (see below).
+5. **Workspace** — defaults to `~/codriver-workspace`. It is created, seeded with
+   a `CLAUDE.md`, and initialized as a git repo on a `codriver-work` branch. This
+   is the dedicated workspace Claude operates in — keep it separate from anything
+   you care about.
+6. Writes `~/.config/codriver/config.toml` (permissions `0600`).
+
+Config lives at `~/.config/codriver/config.toml`, outside the repo. You never
+have to edit it by hand.
+
+---
+
+## Run: `start` / `stop` / `status`
+
+```bash
+codriver start            # start the bot (begins polling Telegram)
+codriver start --check    # validate token + TTS credentials, then exit
+codriver stop             # stop the running bot
+codriver status           # show running (with PID) or stopped
+```
+
+`codriver start --check` is the safe pre-flight: it confirms your bot token works
+and, if you chose ElevenLabs, that your API key is valid — without going live.
+
+Then put on your seatbelt, open the chat with your bot, and start sending voice
+notes.
+
+---
+
+## Text-to-speech backends
+
+codriver can speak its replies two ways:
+
+- **`say`** — macOS's built-in speech (voice `Samantha`). Zero setup, no account,
+  works offline. Robotic but fine.
+- **`elevenlabs`** — natural, human-sounding voices. Needs an API key. During
+  `codriver init` the bot lists your available ElevenLabs voices so you can pick
+  one.
+
+**Get a free ElevenLabs API key: https://try.elevenlabs.io/ihajsceo1jo8**
+
+> That's a referral link — signing up through it supports codriver at no extra
+> cost to you. The tool works identically with any ElevenLabs key, or with the
+> free local `say` voice, so use whatever you prefer.
+
+---
+
+## How it works
 
 | File | Responsibility |
 |------|----------------|
-| `codriver/config.py` | env vars, whitelist, paths, voice/opus/ffmpeg settings |
-| `codriver/stt.py`    | `transcribe(path) -> str` (faster-whisper) |
-| `codriver/brain.py`  | `ask_claude(prompt) -> result` via subprocess; session continuity |
-| `codriver/tts.py`    | `to_voice_ogg(text, voice) -> ogg_path`; `strip_for_speech(text)` |
-| `codriver/bot.py`    | Telegram handlers, wiring, request lock |
+| `codriver/config.py` | config loading (env > `config.toml` > defaults), whitelist, paths |
+| `codriver/stt.py`    | local Whisper transcription |
+| `codriver/brain.py`  | runs `claude -p --resume`, keeps session continuity |
+| `codriver/tts.py`    | text → spoken OGG/Opus (ElevenLabs or `say`) |
+| `codriver/bot.py`    | Telegram handlers and wiring |
+| `codriver/cli.py`    | `init` / `start` / `stop` / `status` |
 
-## Setup
+Transcription runs locally with Whisper. Replies are encoded as mono Opus, the
+format Telegram voice messages require.
 
-```bash
-cd ~/codriver
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-brew install ffmpeg
-```
-
-Create a bot token from [@BotFather](https://t.me/BotFather) (`/newbot`) and get
-your numeric user ID from [@userinfobot](https://t.me/userinfobot), then put them
-in `.env` (never committed):
-
-```
-TELEGRAM_BOT_TOKEN=123456:ABC...
-ALLOWED_USER_ID=YOUR_NUMERIC_ID
-CODRIVER_VOICE=Samantha
-```
-
-## Run
-
-```bash
-cd ~/codriver
-source .venv/bin/activate
-set -a && source .env && set +a
-python -m codriver.bot
-```
-
-For a drive, keep it alive under tmux so it survives terminal close:
-
-```bash
-tmux new -s codriver 'cd ~/codriver && source .venv/bin/activate && set -a && source .env && set +a && python -m codriver.bot'
-```
+---
 
 ## Tests
 
-Pure-function tests (no network, no token, no model download):
-
 ```bash
-.venv/bin/python -m pytest tests/ -v
+pytest tests/ -v
 ```
 
-## Notes on this Mac
+The included tests are pure functions — no network, token, or model download.
 
-- **TTS voice**: defaults to `Samantha` (installed). `Ava` is NOT installed —
-  `say` returns exit code 0 for a missing voice and silently uses the OS default,
-  so `tts.py` validates the configured voice against `say -v '?'` and falls back
-  to `Samantha` if absent.
-- **ffmpeg**: resolved from PATH, falling back to the Homebrew build at
-  `/opt/homebrew/bin/ffmpeg`.
-- **Opus**: mono, 32k bitrate, `libopus` — required format for Telegram voice
-  messages.
+---
 
-## Security (read before first real use)
+## Author & support
 
-This bot is a **remote-code-execution channel into your Mac**.
+Built by **skywalqr**.
 
-1. **Whitelist your user ID** (`is_allowed`) — enforced. With
-   `--dangerously-skip-permissions`, this single-user whitelist is the **only
-   always-on boundary** between a Telegram message and full host compromise.
-2. **cwd is NOT a jail.** `--dangerously-skip-permissions` gives Claude
-   unrestricted whole-filesystem and network access. `cwd=~/codriver/sandbox` is
-   only a *working directory* — Claude can still `cat ~/.ssh/id_rsa`,
-   `curl`-exfiltrate, `rm -rf ~`, or read any repo on the machine. Do not rely on
-   cwd for confinement. For a real OS boundary, set `CODRIVER_SANDBOX=1` to wrap
-   each `claude` call in the bundled `sandbox-exec` profile
-   (`codriver/codriver.sb`), which denies writes outside the workdir and reads of
-   `~/.ssh`/`~/.aws`/etc. (validate the profile against a live run first — it is
-   off by default). Stronger still: run the bot under a dedicated low-privilege
-   macOS user, or inside a container/VM.
-3. **Secrets — keep them off Claude's path.** `.env` lives at `~/codriver/.env`,
-   which is `../.env` from the sandbox cwd — a skip-permissions or prompt-injected
-   Claude can `cat ../.env` and steal the token. Prefer the **macOS Keychain**:
-   `security add-generic-password -s codriver-bot -a "$USER" -w '<token>'` — the
-   bot reads it automatically when `TELEGRAM_BOT_TOKEN` is unset. A leaked token =
-   a shell; **rotate the current BotFather token** since it has been on disk
-   adjacent to the sandbox.
-4. Before pointing this at real repos, implement hook-based voice approval and
-   run a full security audit on the whole pipeline.
+- ⭐ **Star the repo** if codriver saved you a commute — that's what helps others find it.
+- 💬 Questions, ideas, or bugs: open an issue<!-- or add a contact: your email / @handle -->.
+- ❤️ **Support development:** [Sponsor](https://github.com/sponsors/your-github-handle) <!-- enable GitHub Sponsors, then fix this link + .github/FUNDING.yml -->
 
-This is the **MVP (Stages 1–4)**. Interactive questions/permissions, edge-case
-hardening, and voice/UX polish are designed for a follow-on plan.
+<!-- TODO before publishing: replace the placeholder handles above and in
+     .github/FUNDING.yml with your real GitHub / sponsor usernames. -->
+
+---
+
+## License
+
+[MIT](LICENSE) — Copyright (c) 2026 skywalqr.

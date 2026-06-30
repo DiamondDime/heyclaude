@@ -5,3 +5,11 @@ __pycache__/
 sandbox/.codriver_session
 # sandbox is its own throwaway git repo (Claude's working dir) — not tracked here
 sandbox/
+# belt-and-suspenders: never commit secrets/config/build artifacts even if a
+# user points CODRIVER_CONFIG_DIR inside the repo
+config.toml
+*.pid
+secrets*
+*.egg-info/
+build/
+dist/

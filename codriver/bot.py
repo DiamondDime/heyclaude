@@ -6,7 +6,7 @@ import tempfile
 from telegram import Update
 from telegram.ext import Application, ContextTypes, MessageHandler, filters
 
-from .config import TOKEN, SESSION_FILE, is_allowed
+from .config import TOKEN, WORK_DIR, SESSION_FILE, is_allowed
 from .stt import transcribe
 from .brain import ask_claude
 from .tts import to_voice_ogg
@@ -68,6 +68,9 @@ async def on_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 def main():
+    # claude runs with cwd=WORK_DIR, so a missing workspace would crash on the
+    # first voice note (e.g. env-only start, or the dir got removed). Ensure it.
+    WORK_DIR.mkdir(parents=True, exist_ok=True)
     app = Application.builder().token(TOKEN).build()
     app.add_handler(MessageHandler(filters.VOICE, on_voice))
     log.info("Co-Driver running. Send a voice note.")
