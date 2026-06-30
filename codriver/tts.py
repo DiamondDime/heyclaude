@@ -61,8 +61,11 @@ def _resolve_voice(voice: str) -> str:
 def to_voice_ogg(text: str, voice: str = DEFAULT_TTS_VOICE) -> str:
     spoken = strip_for_speech(text) or "Done."
     voice = _resolve_voice(voice)
-    aiff = tempfile.mktemp(suffix=".aiff")
-    ogg = tempfile.mktemp(suffix=".ogg")
+    fd_a, aiff = tempfile.mkstemp(suffix=".aiff")
+    os.close(fd_a)
+    fd_o, ogg = tempfile.mkstemp(suffix=".ogg")
+    os.close(fd_o)
+    success = False
     try:
         # `--` separates flags from text so a leading '-' isn't parsed as a flag.
         say = subprocess.run(
@@ -92,7 +95,11 @@ def to_voice_ogg(text: str, voice: str = DEFAULT_TTS_VOICE) -> str:
         )
         if ff.returncode != 0:
             raise RuntimeError(ff.stderr.strip() or "ffmpeg exited non-zero")
+        success = True
+        return ogg
     finally:
         if os.path.exists(aiff):
             os.remove(aiff)
-    return ogg
+        # On failure, ffmpeg's `-y` may have left a partial/zero-byte ogg — drop it.
+        if not success and os.path.exists(ogg):
+            os.remove(ogg)

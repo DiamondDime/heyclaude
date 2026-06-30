@@ -4,6 +4,16 @@ import subprocess
 from pathlib import Path
 
 
+def _int_env(name: str, default: int) -> int:
+    """Parse an int env var defensively. A blank or non-numeric value (e.g.
+    `ALLOWED_USER_ID=` left in .env) returns the default instead of crashing the
+    whole process at import time with an opaque ValueError."""
+    try:
+        return int(os.environ.get(name, "").strip())
+    except (ValueError, AttributeError):
+        return default
+
+
 def _keychain_token() -> str:
     """Read the bot token from the macOS Keychain (off-disk, out of Claude's
     reachable path). Stored once with:
@@ -35,7 +45,7 @@ def _load_token() -> str:
 
 
 TOKEN = _load_token()
-ALLOWED_USER_ID = int(os.environ.get("ALLOWED_USER_ID", "0"))
+ALLOWED_USER_ID = _int_env("ALLOWED_USER_ID", 0)
 WORK_DIR = Path(os.environ.get("CODRIVER_WORKDIR", str(Path.home() / "codriver" / "sandbox")))
 
 # Optional OS-level confinement for Claude (finding #3). Off by default so the
@@ -64,7 +74,7 @@ FFMPEG_PATH = shutil.which("ffmpeg") or "/opt/homebrew/bin/ffmpeg"
 
 WHISPER_MODEL = os.environ.get("CODRIVER_WHISPER", "base.en")
 SESSION_FILE = WORK_DIR / ".codriver_session"
-CLAUDE_TIMEOUT = int(os.environ.get("CODRIVER_TIMEOUT", "600"))
+CLAUDE_TIMEOUT = _int_env("CODRIVER_TIMEOUT", 600)
 
 
 def is_allowed(user_id: int, allowed: int = ALLOWED_USER_ID) -> bool:

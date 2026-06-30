@@ -72,7 +72,7 @@ def _run(cmd: list[str]) -> subprocess.CompletedProcess:
     )
 
 
-def ask_claude(prompt: str, session_file: Path = None) -> str:
+def ask_claude(prompt: str, session_file: Path | None = None) -> str:
     session_file = session_file or (WORK_DIR / ".codriver_session")
 
     had_session = session_file.exists() and bool(session_file.read_text().strip())
@@ -95,7 +95,18 @@ def ask_claude(prompt: str, session_file: Path = None) -> str:
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr.strip() or "claude exited non-zero")
 
-    data = json.loads(proc.stdout)
+    try:
+        data = json.loads(proc.stdout)
+    except (json.JSONDecodeError, ValueError) as e:
+        raise RuntimeError(f"claude returned unparseable output: {e}") from e
+
+    # claude can exit 0 yet still report a logical error (e.g. max turns / error
+    # subtypes). Don't speak that error text back as if it were a normal answer.
+    if data.get("is_error"):
+        raise RuntimeError(
+            data.get("result") or data.get("subtype") or "claude reported an error"
+        )
+
     if data.get("session_id"):
         session_file.write_text(data["session_id"])
 

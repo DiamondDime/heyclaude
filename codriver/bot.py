@@ -6,7 +6,7 @@ import tempfile
 from telegram import Update
 from telegram.ext import Application, ContextTypes, MessageHandler, filters
 
-from .config import TOKEN, ALLOWED_USER_ID, SESSION_FILE, is_allowed
+from .config import TOKEN, SESSION_FILE, is_allowed
 from .stt import transcribe
 from .brain import ask_claude
 from .tts import to_voice_ogg
@@ -20,28 +20,31 @@ _lock = asyncio.Lock()
 
 async def on_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    if not is_allowed(user.id):
-        log.warning("blocked user %s", user.id)
+    # Fail closed: anonymous / channel / service updates have no user — never run.
+    if user is None or not is_allowed(user.id):
+        log.warning("blocked update from %s", user and user.id)
         return
 
-    # 1. download + transcribe
-    tg_file = await update.message.voice.get_file()
-    in_path = tempfile.mktemp(suffix=".oga")
-    await tg_file.download_to_drive(in_path)
     try:
-        text = await asyncio.to_thread(transcribe, in_path)
-    finally:
-        os.remove(in_path)
+        # 1. download + transcribe
+        tg_file = await update.message.voice.get_file()
+        fd, in_path = tempfile.mkstemp(suffix=".oga")
+        os.close(fd)
+        try:
+            await tg_file.download_to_drive(in_path)
+            text = await asyncio.to_thread(transcribe, in_path)
+        finally:
+            if os.path.exists(in_path):
+                os.remove(in_path)
 
-    if not text:
-        await update.message.reply_text("🤔 Didn't catch that — try again.")
-        return
+        if not text:
+            await update.message.reply_text("🤔 Didn't catch that — try again.")
+            return
 
-    # 2. instant ack so you're not driving in silence
-    await update.message.reply_text(f"🎤 {text}\n🔧 working…")
+        # 2. instant ack so you're not driving in silence
+        await update.message.reply_text(f"🎤 {text}\n🔧 working…")
 
-    # 3. run Claude (serialized), then speak the result
-    try:
+        # 3. run Claude (serialized), then speak the result
         async with _lock:
             result = await asyncio.to_thread(ask_claude, text, SESSION_FILE)
         ogg = await asyncio.to_thread(to_voice_ogg, result)
@@ -54,9 +57,14 @@ async def on_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         finally:
             if os.path.exists(ogg):
                 os.remove(ogg)
-    except Exception as e:  # never die silently mid-drive
+    except Exception:  # never strand the driver in silence — covers STT/download too
         log.exception("task failed")
-        await update.message.reply_text(f"⚠️ Error: {e}. Session is saved — retry.")
+        try:
+            await update.message.reply_text(
+                "⚠️ Something broke — your session is saved. Try again."
+            )
+        except Exception:
+            log.exception("could not deliver error notice")
 
 
 def main():
