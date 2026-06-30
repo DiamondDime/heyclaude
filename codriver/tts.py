@@ -1,3 +1,4 @@
+import logging
 import os
 import re
 import subprocess
@@ -5,6 +6,8 @@ import tempfile
 from functools import lru_cache
 
 import httpx
+
+log = logging.getLogger("codriver")
 
 from .config import (
     DEFAULT_TTS_VOICE,
@@ -104,7 +107,14 @@ def _synthesize_elevenlabs(spoken: str) -> str:
 
 def _synthesize(spoken: str, voice: str) -> str:
     if TTS_BACKEND == "elevenlabs":
-        return _synthesize_elevenlabs(spoken)
+        try:
+            return _synthesize_elevenlabs(spoken)
+        except Exception as exc:
+            # ElevenLabs runs AFTER claude already did the work — a quota/401/429
+            # here must NOT lose the answer. `say` is local, needs no network or
+            # quota, so fall back to it and still speak the reply.
+            log.warning("ElevenLabs TTS failed (%s); falling back to local `say`.", exc)
+            return _synthesize_say(spoken, voice)
     return _synthesize_say(spoken, voice)
 
 

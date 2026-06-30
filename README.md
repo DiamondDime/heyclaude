@@ -34,6 +34,47 @@ If that trade-off is not acceptable to you, do not run this.
 
 ---
 
+## Driving safety — also read this
+
+codriver is a **hands-free coding aid, not an autopilot.** It is designed so you
+never have to look at or touch a screen — you talk, you listen. But:
+
+- **The road comes first.** Do not let a coding problem pull your attention off
+  driving. If a reply needs real thought, pull over.
+- **Obey your local laws.** Rules on phone/device use while driving vary by
+  country and state. Complying with them is your responsibility.
+- Treat it like a podcast you can talk back to — background, not foreground.
+
+You use this tool at your own risk. It is provided "as is" (see the MIT license),
+with no warranty, and the author is not liable for how you use it.
+
+---
+
+## Privacy — where your words go
+
+| Step | Where it runs |
+|------|---------------|
+| Your spoken note | through **Telegram's servers** (like any Telegram message) |
+| Transcription (speech → text) | **locally** on your Mac (Whisper) |
+| Claude's work | **locally** via the `claude` CLI on your subscription |
+| Reply spoken back | **`say`**: fully local · **ElevenLabs**: reply *text* is sent to ElevenLabs to synthesize |
+
+Nothing is sent to the author of codriver. If you want zero third-party speech
+services, choose the `say` backend — then only Telegram is in the loop.
+
+---
+
+## Using your Claude subscription
+
+codriver drives the `claude` CLI you're already signed into, so it runs on your
+**Claude Code subscription** rather than the paid API. Automating your own
+account this way is for personal use — review the
+[Anthropic Usage Policies](https://www.anthropic.com/legal/aup) and your plan's
+terms, and don't share one login across people. codriver is an independent
+project and is not affiliated with or endorsed by Anthropic.
+
+---
+
 ## Requirements
 
 - **macOS** (uses the `say` voice and Homebrew `ffmpeg`)
@@ -70,9 +111,10 @@ The wizard walks you through everything:
 3. **Telegram user id** — the numeric id allowed to talk to the bot.
 4. **TTS backend** — pick `elevenlabs` or `say` (see below).
 5. **Workspace** — defaults to `~/codriver-workspace`. It is created, seeded with
-   a `CLAUDE.md`, and initialized as a git repo on a `codriver-work` branch. This
-   is the dedicated workspace Claude operates in — keep it separate from anything
-   you care about.
+   a `CLAUDE.md` (an existing one is left untouched), and initialized as a git
+   repo on a `codriver-work` branch. The wizard **refuses your home folder, real
+   repos, and data dirs** like `~/Documents` or `~/.ssh` — Claude runs destructive
+   commands here, so it must be a dedicated, throwaway directory.
 6. Writes `~/.config/codriver/config.toml` (permissions `0600`).
 
 Config lives at `~/.config/codriver/config.toml`, outside the repo. You never
@@ -83,17 +125,36 @@ have to edit it by hand.
 ## Run: `start` / `stop` / `status`
 
 ```bash
+codriver doctor           # full preflight: ffmpeg, Telegram, TTS, claude, speech model
 codriver start            # start the bot (begins polling Telegram)
-codriver start --check    # validate token + TTS credentials, then exit
+codriver start --check    # quick check (platform + token + TTS), then exit
 codriver stop             # stop the running bot
 codriver status           # show running (with PID) or stopped
 ```
 
-`codriver start --check` is the safe pre-flight: it confirms your bot token works
-and, if you chose ElevenLabs, that your API key is valid — without going live.
+Run **`codriver doctor`** once before your first drive. Unlike `--check`, it also
+runs one real `claude` turn to confirm you're signed in and that your build
+accepts the model/effort flags, and it pre-downloads the speech model — so you
+don't discover a problem on the road. The bot also **auto-restarts itself** if it
+crashes, so a transient hiccup won't leave you stranded mid-drive.
 
 Then put on your seatbelt, open the chat with your bot, and start sending voice
 notes.
+
+### Keep it running (optional)
+
+`codriver start` runs in the foreground and stops if you close the terminal or
+the Mac sleeps. To run it as a background service that **starts at login,
+restarts on crash, and keeps the Mac awake** (via `caffeinate`):
+
+```bash
+codriver install-service     # install + start the launchd agent
+codriver uninstall-service   # remove it
+```
+
+Logs land in `~/.config/codriver/bot.log`. Note: a sleeping Mac will still pause
+the bot — the service prevents *system* sleep while running, but if you close the
+lid, polling stops until you wake it.
 
 ---
 
@@ -167,10 +228,12 @@ Built by **skywalqr**.
 
 - ⭐ **Star the repo** if codriver saved you a commute — that's what helps others find it.
 - 💬 Questions, ideas, or bugs: open an issue<!-- or add a contact: your email / @handle -->.
-- ❤️ **Support development:** [Sponsor](https://github.com/sponsors/your-github-handle) <!-- enable GitHub Sponsors, then fix this link + .github/FUNDING.yml -->
+- ❤️ **Support development:** [Sponsor](https://github.com/sponsors/skywalqr) <!-- requires enabling GitHub Sponsors on this account -->
 
-<!-- TODO before publishing: replace the placeholder handles above and in
-     .github/FUNDING.yml with your real GitHub / sponsor usernames. -->
+<!-- Repo URLs and the sponsor link assume the GitHub handle `skywalqr`.
+     If yours differs, find-replace it here, in .github/FUNDING.yml, and in
+     pyproject.toml [project.urls]. GitHub Sponsors must be enabled for the
+     Sponsor link/button to resolve. -->
 
 ---
 

@@ -6,7 +6,36 @@ build-backend = "hatchling.build"
 name = "codriver"
 version = "0.1.0"
 description = "Drive Claude Code from Telegram voice notes."
+readme = "README.md"
 requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "skywalqr" }]
+keywords = [
+    "claude",
+    "claude-code",
+    "telegram",
+    "voice",
+    "speech-to-text",
+    "text-to-speech",
+    "whisper",
+    "elevenlabs",
+    "driving",
+    "cli",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Communications :: Chat",
+    "Topic :: Multimedia :: Sound/Audio :: Speech",
+    "Topic :: Software Development",
+]
 dependencies = [
     "python-telegram-bot>=21",
     "faster-whisper>=1.0",
@@ -14,8 +43,15 @@ dependencies = [
     "tomli-w>=1.0",
 ]
 
+[project.urls]
+Homepage = "https://github.com/skywalqr/codriver"
+Repository = "https://github.com/skywalqr/codriver"
+Issues = "https://github.com/skywalqr/codriver/issues"
+
 [project.scripts]
 codriver = "codriver.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["codriver"]
+# Non-Python files under the package (the seeded workspace CLAUDE.md) are
+# included automatically by hatchling — no force-include needed.

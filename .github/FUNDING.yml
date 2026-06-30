@@ -1,6 +1,6 @@
 # Shows a "Sponsor" button on the GitHub repo.
 # Fill in your usernames and delete the lines you don't use.
-github: [your-github-handle]        # <-- your GitHub Sponsors username
+github: [skywalqr]                  # <-- your GitHub Sponsors username
 # ko_fi: your-ko-fi-name
 # buy_me_a_coffee: your-bmac-name
 # custom: ["https://your-website.example"]

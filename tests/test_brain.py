@@ -1,4 +1,27 @@
-from codriver.brain import build_command
+from codriver.brain import (
+    build_command,
+    classify_claude_error,
+    ClaudeUsageLimitError,
+    ClaudeAuthError,
+)
+
+
+def test_classify_usage_limit():
+    assert classify_claude_error("Claude usage limit reached. Resets at 5pm.") is ClaudeUsageLimitError
+    assert classify_claude_error("Error: rate limit exceeded") is ClaudeUsageLimitError
+    assert classify_claude_error("429 too many requests") is ClaudeUsageLimitError
+
+
+def test_classify_auth():
+    assert classify_claude_error("You are not logged in. Run claude login.") is ClaudeAuthError
+    assert classify_claude_error("invalid api key") is ClaudeAuthError
+    assert classify_claude_error("401 unauthorized") is ClaudeAuthError
+
+
+def test_classify_unknown_returns_none():
+    assert classify_claude_error("some unrelated traceback") is None
+    assert classify_claude_error("") is None
+    assert classify_claude_error(None) is None
 
 
 def test_first_turn_has_no_resume(tmp_path):

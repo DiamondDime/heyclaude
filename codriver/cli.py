@@ -14,10 +14,13 @@ CODRIVER_CONFIG_DIR), OUTSIDE the project repo. Secrets are never printed.
 import argparse
 import getpass
 import os
+import platform
 import shutil
 import signal
 import subprocess
 import sys
+import time
+from importlib import resources
 from pathlib import Path
 
 import httpx
@@ -50,9 +53,11 @@ def _pid_file() -> Path:
     return _config_dir() / "codriver.pid"
 
 
-def _sandbox_claude_md() -> Path:
-    # codriver/codriver/cli.py -> repo root is two parents up.
-    return Path(__file__).resolve().parent.parent / "sandbox" / "CLAUDE.md"
+def _workspace_template() -> str:
+    """The CLAUDE.md seeded into a new workspace, read from packaged data so it
+    ships with `pip install` (the old repo-relative path didn't exist in a wheel,
+    so the seed silently no-op'd for every installed user)."""
+    return resources.files("codriver").joinpath("data/workspace_CLAUDE.md").read_text()
 
 
 DEFAULT_WORKDIR = Path.home() / "codriver-workspace"
@@ -185,43 +190,131 @@ def _prompt_tts() -> dict:
         }
 
 
-def _setup_workdir() -> Path:
-    raw = input(f"\nWorkspace directory [{DEFAULT_WORKDIR}]: ").strip()
-    workdir = Path(raw).expanduser() if raw else DEFAULT_WORKDIR
-    workdir.mkdir(parents=True, exist_ok=True)
+def validate_workdir(path: Path, home: Path) -> str | None:
+    """Return a refusal reason if `path` is an unsafe workspace, else None.
 
-    src = _sandbox_claude_md()
+    Claude runs `--dangerously-skip-permissions` in this directory, so a
+    fat-fingered `~` must NOT hand it the home folder or a tree full of real
+    data. Pure (no I/O beyond resolve) so it's unit-testable. The wizard's
+    printed warning is only as good as this enforcement.
+    """
+    try:
+        p = path.expanduser().resolve()
+        home = home.expanduser().resolve()
+    except OSError:
+        return None
+
+    if p == Path(p.anchor):
+        return "that's the filesystem root"
+    if p == home:
+        return "that's your home folder"
+    # p is an ancestor of home (home lives inside it) — e.g. /Users
+    if home.is_relative_to(p):
+        return "your home folder is inside it"
+
+    sensitive_names = (
+        "Desktop", "Documents", "Downloads", "Library", "Movies", "Music",
+        "Pictures", "Applications", "Projects", "code", "src",
+    )
+    if p.parent == home and p.name in sensitive_names:
+        return f"{p.name} holds real files — use a dedicated subfolder instead"
+
+    for name in (".ssh", ".config", ".aws", ".gnupg", ".kube"):
+        s = (home / name)
+        if p == s or p.is_relative_to(s):
+            return f"it's inside {name}"
+    return None
+
+
+def _require_macos() -> None:
+    if platform.system() != "Darwin":
+        print(
+            "codriver is macOS-only — it uses the `say` voice and Apple audio.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
+
+def _seed_claude_md(workdir: Path) -> None:
+    """Write the workspace CLAUDE.md, never clobbering one the user already has."""
     dest = workdir / "CLAUDE.md"
-    if src.exists():
-        try:
-            shutil.copyfile(src, dest)
-            print(f"  Copied CLAUDE.md into {workdir}")
-        except OSError as exc:
-            print(f"  Could not copy CLAUDE.md ({exc}).")
-    else:
-        print(f"  Note: template CLAUDE.md not found at {src}; skipping.")
+    try:
+        text = _workspace_template()
+    except (OSError, ModuleNotFoundError, FileNotFoundError):
+        print("  Note: bundled CLAUDE.md template missing; skipping.")
+        return
+    if dest.exists():
+        if dest.read_text() == text:
+            return
+        print(f"  {dest} already exists — leaving your version untouched.")
+        return
+    dest.write_text(text)
+    print(f"  Seeded CLAUDE.md into {workdir}")
 
-    if shutil.which("git"):
-        try:
-            if not (workdir / ".git").exists():
-                subprocess.run(
-                    ["git", "init"], cwd=workdir, check=True,
-                    capture_output=True, text=True,
-                )
-            subprocess.run(
-                ["git", "checkout", "-b", "codriver-work"], cwd=workdir,
-                check=True, capture_output=True, text=True,
-            )
-            print("  Initialized git repo on branch 'codriver-work'.")
-        except subprocess.CalledProcessError:
-            # Branch may already exist, or git declined — not fatal.
-            pass
-    else:
+
+def _git_init_workspace(workdir: Path) -> None:
+    if not shutil.which("git"):
         print("  git not found; skipping repo init.")
+        return
+    try:
+        if not (workdir / ".git").exists():
+            subprocess.run(
+                ["git", "init"], cwd=workdir, check=True,
+                capture_output=True, text=True,
+            )
+        subprocess.run(
+            ["git", "checkout", "-b", "codriver-work"], cwd=workdir,
+            check=True, capture_output=True, text=True,
+        )
+        print("  Initialized git repo on branch 'codriver-work'.")
+    except subprocess.CalledProcessError:
+        # Branch may already exist, or git declined — not fatal.
+        pass
+
+
+def _setup_workdir() -> Path:
+    home = Path.home()
+    while True:
+        raw = input(f"\nWorkspace directory [{DEFAULT_WORKDIR}]: ").strip()
+        workdir = Path(raw).expanduser() if raw else DEFAULT_WORKDIR
+
+        reason = validate_workdir(workdir, home)
+        if reason:
+            print(
+                f"  Refusing {workdir}: {reason}.\n"
+                f"  Claude runs destructive commands here — pick a dedicated, "
+                f"throwaway directory (e.g. {DEFAULT_WORKDIR})."
+            )
+            continue
+
+        # An existing non-empty dir (especially a real repo) is dangerous: confirm.
+        if workdir.exists():
+            ignorable = {".git", "CLAUDE.md", ".codriver_session"}
+            try:
+                leftovers = [e for e in workdir.iterdir() if e.name not in ignorable]
+            except OSError:
+                leftovers = []
+            if (workdir / ".git").exists() or leftovers:
+                print(
+                    f"  ⚠️  {workdir} already contains files. Claude will run "
+                    f"destructive commands in here."
+                )
+                confirm = input(
+                    f"  Type the folder name '{workdir.name}' to use it anyway, "
+                    f"or press Enter to choose another: "
+                ).strip()
+                if confirm != workdir.name:
+                    continue
+        break
+
+    workdir.mkdir(parents=True, exist_ok=True)
+    _seed_claude_md(workdir)
+    _git_init_workspace(workdir)
     return workdir
 
 
 def cmd_init(args) -> int:
+    _require_macos()
     print("=" * 64)
     print("Co-Driver setup")
     print("=" * 64)
@@ -232,7 +325,16 @@ def cmd_init(args) -> int:
         "  so it can run any command there without asking.\n"
         "  Point it ONLY at a dedicated, throwaway workspace directory —\n"
         "  NEVER your home folder or a real code repository.\n"
+        "\nDRIVING & PRIVACY\n"
+        "  This is a hands-free coding aid, NOT an autopilot. Keep your eyes on\n"
+        "  the road and obey local laws on phone use while driving.\n"
+        "  Your voice notes travel through Telegram's servers; if you pick the\n"
+        "  ElevenLabs voice, reply TEXT is also sent to ElevenLabs. Transcription\n"
+        "  and Claude run locally on your Mac.\n"
     )
+    if input("Type 'I understand' to continue: ").strip().lower() != "i understand":
+        print("Aborted.")
+        return 1
 
     token = _prompt_telegram_token()
     user_id = _prompt_user_id()
@@ -260,8 +362,24 @@ def cmd_init(args) -> int:
     print(f"\nWrote config to {cfg_file} (permissions 0600).")
     print("Claude defaults to model claude-opus-4-8 at xhigh effort —")
     print("switch anytime from the bot with /model and /effort.")
-    print("Done. Run: codriver start")
+
+    # Pre-download the speech model now (on WiFi) so the first voice note on the
+    # road doesn't stall on a ~140MB fetch over cellular.
+    _warm_whisper()
+
+    print("\nDone. Run: codriver start --check   (then: codriver start)")
     return 0
+
+
+def _warm_whisper() -> None:
+    print("\nDownloading the local speech model (first run only, ~140MB)…")
+    try:
+        from . import stt
+        stt._model()
+        print("  Speech model ready.")
+    except Exception as exc:  # never block setup on this
+        print(f"  Could not pre-load the speech model ({exc}); it will download "
+              f"on first use.")
 
 
 # --- start -----------------------------------------------------------------
@@ -276,8 +394,23 @@ def _read_config_toml() -> dict:
         return {}
 
 
-def _check_config() -> int:
-    """Validate the configured token (and ElevenLabs key) without polling."""
+def _preflight(warm_whisper: bool, check_claude: bool = True) -> int:
+    """Validate everything needed to drive: platform, ffmpeg, Telegram token,
+    TTS credentials, and (optionally) that `claude` is installed + signed in.
+    Returns 0 if all required checks pass, non-zero otherwise."""
+    ok = True
+
+    if platform.system() != "Darwin":
+        print("FAIL  macOS required (uses the `say` voice + Apple audio)", file=sys.stderr)
+        return 2
+    print("OK    macOS")
+
+    if shutil.which("ffmpeg") or Path("/opt/homebrew/bin/ffmpeg").exists():
+        print("OK    ffmpeg")
+    else:
+        print("FAIL  ffmpeg not found — run: brew install ffmpeg", file=sys.stderr)
+        ok = False
+
     # Resolve through the config module so ENV > TOML precedence is respected.
     try:
         from . import config as cfg
@@ -291,30 +424,51 @@ def _check_config() -> int:
         el_key = ((data.get("tts") or {}).get("elevenlabs") or {}).get("api_key", "")
 
     if not token:
-        print("No bot token configured. Run: codriver init", file=sys.stderr)
+        print("FAIL  no bot token configured — run: codriver init", file=sys.stderr)
         return 1
-    ok, msg = _validate_telegram_token(token)
-    if not ok:
-        print(f"Telegram token invalid: {msg}", file=sys.stderr)
-        return 1
-    print(f"Telegram OK (bot @{msg})")
+    tg_ok, msg = _validate_telegram_token(token)
+    if tg_ok:
+        print(f"OK    Telegram (bot @{msg})")
+    else:
+        print(f"FAIL  Telegram token invalid: {msg}", file=sys.stderr)
+        ok = False
 
     if backend == "elevenlabs":
         if not el_key:
-            print("ElevenLabs backend selected but no API key configured.",
-                  file=sys.stderr)
-            return 1
-        ok, result = _fetch_elevenlabs_voices(el_key)
-        if not ok:
-            print(f"ElevenLabs key invalid: {result}", file=sys.stderr)
-            return 1
-        print(f"ElevenLabs OK ({len(result)} voices available)")
+            print("FAIL  ElevenLabs selected but no API key configured", file=sys.stderr)
+            ok = False
+        else:
+            el_ok, result = _fetch_elevenlabs_voices(el_key)
+            if el_ok:
+                print(f"OK    ElevenLabs ({len(result)} voices) — falls back to `say` if it fails")
+            else:
+                # Non-fatal: tts.py degrades to `say`, so a bad EL key still speaks.
+                print(f"WARN  ElevenLabs key invalid ({result}); will use local `say`")
 
-    print("OK")
-    return 0
+    if check_claude:
+        print("...   checking claude (one quick turn)…")
+        try:
+            from . import brain
+            c_ok, detail = brain.preflight()
+        except Exception as exc:
+            c_ok, detail = False, str(exc)
+        print(("OK    " if c_ok else "FAIL  ") + f"claude — {detail}")
+        ok = ok and c_ok
+
+    if warm_whisper:
+        _warm_whisper()
+
+    print("\n" + ("OK — ready to drive." if ok else "Some checks failed (see FAIL above)."))
+    return 0 if ok else 1
+
+
+def cmd_doctor(args) -> int:
+    """Full preflight: platform, ffmpeg, Telegram, TTS, claude, speech model."""
+    return _preflight(warm_whisper=True, check_claude=True)
 
 
 def cmd_start(args) -> int:
+    _require_macos()
     # Gate on token-resolvability (ENV > TOML > keychain), not file existence,
     # so env-only setups (no config.toml) still work for backward compat.
     from . import config as cfg
@@ -323,7 +477,8 @@ def cmd_start(args) -> int:
         return 1
 
     if args.check:
-        return _check_config()
+        # Skip the live claude turn here for speed; `codriver doctor` does that.
+        return _preflight(warm_whisper=False, check_claude=False)
 
     # Refuse to start a second instance: two pollers on one token => Telegram 409,
     # and overwriting the PID file would orphan the first (stop could not find it).
@@ -339,8 +494,7 @@ def cmd_start(args) -> int:
     pid_file = _pid_file()
     pid_file.write_text(str(os.getpid()))
     try:
-        from . import bot
-        bot.main()
+        _supervise_bot()
     finally:
         try:
             if pid_file.exists():
@@ -348,6 +502,41 @@ def cmd_start(args) -> int:
         except OSError:
             pass
     return 0
+
+
+def _supervise_bot() -> None:
+    """Run the bot, auto-restarting after an unexpected crash so a transient
+    failure mid-drive doesn't leave the driver with a dead bot for the rest of
+    the trip. A clean shutdown (SIGTERM via `codriver stop`, Ctrl-C) or a fatal
+    config error (bad token) stops for good instead of looping."""
+    from . import bot
+    try:
+        from telegram.error import InvalidToken
+    except Exception:  # pragma: no cover
+        InvalidToken = ()  # type: ignore[assignment]
+
+    restarts: list[float] = []
+    backoff = 3
+    while True:
+        try:
+            bot.main()          # returns cleanly when PTB handles SIGINT/SIGTERM
+            return
+        except KeyboardInterrupt:
+            return
+        except InvalidToken:
+            print("Bot token is invalid — not restarting. Run: codriver init",
+                  file=sys.stderr)
+            return
+        except Exception as exc:
+            now = time.monotonic()
+            restarts = [t for t in restarts if now - t < 60]
+            restarts.append(now)
+            if len(restarts) > 5:
+                print("Bot crashed repeatedly; giving up. Try: codriver doctor",
+                      file=sys.stderr)
+                return
+            print(f"Bot crashed ({exc}); restarting in {backoff}s…", file=sys.stderr)
+            time.sleep(backoff)
 
 
 # --- stop / status ---------------------------------------------------------
@@ -420,6 +609,84 @@ def cmd_status(args) -> int:
     return 0
 
 
+# --- launchd service (optional, macOS) -------------------------------------
+SERVICE_LABEL = "com.codriver.bot"
+
+
+def _service_plist_path() -> Path:
+    return Path.home() / "Library" / "LaunchAgents" / f"{SERVICE_LABEL}.plist"
+
+
+def _build_plist() -> str:
+    # Run via `python -m codriver.cli start` so it works regardless of where the
+    # `codriver` script landed on PATH. `caffeinate -s` keeps the Mac awake while
+    # the bot runs — KeepAlive restarts a crash but cannot stop system sleep,
+    # which is the likeliest reason a bot goes quiet mid-drive.
+    logs = _config_dir()
+    args = [
+        "/usr/bin/caffeinate", "-s",
+        sys.executable, "-m", "codriver.cli", "start",
+    ]
+    items = "".join(f"\n      <string>{a}</string>" for a in args)
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
+        '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
+        '<plist version="1.0">\n'
+        '  <dict>\n'
+        f'    <key>Label</key>\n    <string>{SERVICE_LABEL}</string>\n'
+        f'    <key>ProgramArguments</key>\n    <array>{items}\n    </array>\n'
+        '    <key>RunAtLoad</key>\n    <true/>\n'
+        '    <key>KeepAlive</key>\n    <true/>\n'
+        f'    <key>StandardOutPath</key>\n    <string>{logs / "bot.log"}</string>\n'
+        f'    <key>StandardErrorPath</key>\n    <string>{logs / "bot.err.log"}</string>\n'
+        '  </dict>\n'
+        '</plist>\n'
+    )
+
+
+def cmd_install_service(args) -> int:
+    _require_macos()
+    from . import config as cfg
+    if not cfg.TOKEN:
+        print("Configure the bot first. Run: codriver init", file=sys.stderr)
+        return 1
+    plist = _service_plist_path()
+    plist.parent.mkdir(parents=True, exist_ok=True)
+    _config_dir().mkdir(parents=True, exist_ok=True)
+    plist.write_text(_build_plist())
+    # `load -w` is the widely-compatible enable; ignore "already loaded".
+    subprocess.run(["launchctl", "unload", str(plist)],
+                   capture_output=True, text=True)
+    res = subprocess.run(["launchctl", "load", "-w", str(plist)],
+                         capture_output=True, text=True)
+    if res.returncode != 0:
+        print(f"Wrote {plist} but `launchctl load` failed: {res.stderr.strip()}",
+              file=sys.stderr)
+        print("Load it manually with: launchctl load -w " + str(plist))
+        return 1
+    print(f"Installed and started the codriver service ({SERVICE_LABEL}).")
+    print(f"  It auto-starts at login and restarts on crash. Logs: {_config_dir() / 'bot.log'}")
+    print("  Remove it with: codriver uninstall-service")
+    return 0
+
+
+def cmd_uninstall_service(args) -> int:
+    plist = _service_plist_path()
+    if not plist.exists():
+        print("No codriver service installed.")
+        return 0
+    subprocess.run(["launchctl", "unload", str(plist)],
+                   capture_output=True, text=True)
+    try:
+        plist.unlink()
+    except OSError as exc:
+        print(f"Could not remove {plist}: {exc}", file=sys.stderr)
+        return 1
+    print("Uninstalled the codriver service.")
+    return 0
+
+
 # --- argparse wiring -------------------------------------------------------
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -443,6 +710,21 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_status = sub.add_parser("status", help="show running / stopped")
     p_status.set_defaults(func=cmd_status)
+
+    p_doctor = sub.add_parser(
+        "doctor", help="full preflight: ffmpeg, Telegram, TTS, claude, speech model"
+    )
+    p_doctor.set_defaults(func=cmd_doctor)
+
+    p_install = sub.add_parser(
+        "install-service", help="auto-start the bot at login (launchd, keeps Mac awake)"
+    )
+    p_install.set_defaults(func=cmd_install_service)
+
+    p_uninstall = sub.add_parser(
+        "uninstall-service", help="remove the launchd auto-start service"
+    )
+    p_uninstall.set_defaults(func=cmd_uninstall_service)
 
     return parser
 

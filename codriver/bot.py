@@ -14,7 +14,7 @@ from telegram.ext import (
 
 from .config import TOKEN, WORK_DIR, SESSION_FILE, is_allowed
 from .stt import transcribe
-from .brain import ask_claude
+from .brain import ask_claude, ClaudeUsageLimitError, ClaudeAuthError
 from .tts import to_voice_ogg
 from . import commands, runtime
 
@@ -23,6 +23,22 @@ log = logging.getLogger("codriver")
 
 # Serialize: one Claude task at a time. A second voice note waits its turn.
 _lock = asyncio.Lock()
+
+# Reject oversized notes before download+transcribe. Telegram already caps
+# getFile at 20MB; the duration cap stops one accidental long recording from
+# hogging the single Claude lock for the whole drive.
+MAX_VOICE_SECONDS = 300
+MAX_VOICE_BYTES = 20 * 1024 * 1024
+
+USAGE_LIMIT_MSG = (
+    "You've hit your Claude usage limit. It resets later — you can stop sending "
+    "for now, your session is saved."
+)
+AUTH_MSG = (
+    "Claude isn't signed in on your Mac, so I can't run anything. You'll need to "
+    "fix that when you're stopped."
+)
+BROKE_MSG = "Something broke — your session is saved. Try again."
 
 
 def _allowed(update: Update) -> bool:
@@ -39,6 +55,19 @@ async def _send_voice(update: Update, text: str) -> None:
     finally:
         if os.path.exists(ogg):
             os.remove(ogg)
+
+
+async def _safe_say(update: Update, text: str) -> None:
+    """Best-effort: deliver `text` as both message and voice, never raising.
+    Used on error paths where TTS itself may also be failing."""
+    try:
+        await update.message.reply_text("⚠️ " + text)
+    except Exception:
+        log.exception("could not deliver text notice")
+    try:
+        await _send_voice(update, text)
+    except Exception:
+        log.exception("could not deliver voice notice")
 
 
 def apply_command(cmd: dict) -> str:
@@ -69,9 +98,18 @@ async def on_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         log.warning("blocked update from %s", user and user.id)
         return
 
+    # Reject oversized notes up front (before paying for download + Whisper).
+    voice = update.message.voice
+    if voice.duration and voice.duration > MAX_VOICE_SECONDS:
+        await update.message.reply_text("🛑 That voice note is too long — keep it under 5 minutes.")
+        return
+    if voice.file_size and voice.file_size > MAX_VOICE_BYTES:
+        await update.message.reply_text("🛑 That voice note is too large.")
+        return
+
     try:
         # 1. download + transcribe
-        tg_file = await update.message.voice.get_file()
+        tg_file = await voice.get_file()
         fd, in_path = tempfile.mkstemp(suffix=".oga")
         os.close(fd)
         try:
@@ -103,14 +141,16 @@ async def on_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 ask_claude, text, SESSION_FILE, runtime.get("effort"), runtime.get("model")
             )
         await _send_voice(update, result)
+    except ClaudeUsageLimitError:
+        # Persistent — telling the driver to STOP retrying is the real safety win.
+        log.warning("claude usage limit hit")
+        await _safe_say(update, USAGE_LIMIT_MSG)
+    except ClaudeAuthError:
+        log.warning("claude not authenticated")
+        await _safe_say(update, AUTH_MSG)
     except Exception:  # never strand the driver in silence — covers STT/download too
         log.exception("task failed")
-        try:
-            await update.message.reply_text(
-                "⚠️ Something broke — your session is saved. Try again."
-            )
-        except Exception:
-            log.exception("could not deliver error notice")
+        await _safe_say(update, BROKE_MSG)
 
 
 # --- slash commands --------------------------------------------------------
@@ -195,7 +235,11 @@ def main():
     app.add_handler(MessageHandler(filters.VOICE, on_voice))
     app.add_error_handler(_on_error)
     log.info("Co-Driver running. Send a voice note.")
-    app.run_polling()
+    # bootstrap_retries=-1: a network blip during startup (getMe/Initialize)
+    # otherwise aborts the whole process with exit 1. Retry the bootstrap
+    # forever so a flaky moment at launch can't leave you with a dead bot.
+    # (Once polling is up, PTB already retries network drops indefinitely.)
+    app.run_polling(bootstrap_retries=-1)
 
 
 if __name__ == "__main__":

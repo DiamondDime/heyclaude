@@ -24,6 +24,43 @@ log = logging.getLogger("codriver")
 FRESH_SESSION_NOTICE = "Heads up — I started a fresh session. "
 
 
+# Typed failures so the bot can speak a SPECIFIC, actionable line instead of a
+# generic "something broke" — the difference between the driver knowing to stop
+# (usage limit won't clear for hours) and fruitlessly re-sending while driving.
+class ClaudeUsageLimitError(RuntimeError):
+    """Claude reported a usage/rate limit — persistent, won't clear on retry."""
+
+
+class ClaudeAuthError(RuntimeError):
+    """Claude is not signed in / not authenticated on this machine."""
+
+
+# Substrings (lowercased) seen in claude's stderr / error result for each case.
+_LIMIT_SIGNS = (
+    "usage limit", "rate limit", "limit reached", "too many requests",
+    "quota", "resets at",
+)
+_AUTH_SIGNS = (
+    "not logged in", "not authenticated", "unauthorized", "invalid api key",
+    "authentication failed", "claude login", "please log in", "please sign in",
+)
+
+
+def classify_claude_error(text: str | None):
+    """Map a claude failure message to a typed error class, or None if unknown."""
+    t = (text or "").lower()
+    if any(s in t for s in _LIMIT_SIGNS):
+        return ClaudeUsageLimitError
+    if any(s in t for s in _AUTH_SIGNS):
+        return ClaudeAuthError
+    return None
+
+
+def _raise_claude_error(message: str) -> None:
+    cls = classify_claude_error(message) or RuntimeError
+    raise cls(message or "claude exited non-zero")
+
+
 def build_command(prompt: str, session_file: Path, allow_resume: bool = True,
                   effort: str | None = None, model: str | None = None) -> list[str]:
     cmd = [
@@ -103,7 +140,7 @@ def ask_claude(prompt: str, session_file: Path | None = None,
         fresh = True
 
     if proc.returncode != 0:
-        raise RuntimeError(proc.stderr.strip() or "claude exited non-zero")
+        _raise_claude_error(proc.stderr.strip())
 
     try:
         data = json.loads(proc.stdout)
@@ -113,7 +150,7 @@ def ask_claude(prompt: str, session_file: Path | None = None,
     # claude can exit 0 yet still report a logical error (e.g. max turns / error
     # subtypes). Don't speak that error text back as if it were a normal answer.
     if data.get("is_error"):
-        raise RuntimeError(
+        _raise_claude_error(
             data.get("result") or data.get("subtype") or "claude reported an error"
         )
 
@@ -124,3 +161,43 @@ def ask_claude(prompt: str, session_file: Path | None = None,
     if fresh:
         result = FRESH_SESSION_NOTICE + result
     return result
+
+
+def preflight(model: str | None = None, timeout: int = 90) -> tuple[bool, str]:
+    """Run one trivial claude turn to prove the CLI is usable BEFORE a drive.
+
+    Catches the three failures that otherwise only show up as every-turn-fails
+    on the road: `claude` missing from PATH, not signed in, or a build that
+    rejects the `--model` / `--effort` flags (which would brick every turn).
+    Returns (ok, human message). Uses `--effort low` so the check is quick —
+    we're testing that the flag is ACCEPTED, not the configured depth.
+    """
+    if not shutil.which("claude"):
+        return False, "the `claude` CLI is not on your PATH (install Claude Code)"
+    model = model or CLAUDE_MODEL
+    cmd = [
+        "claude", "-p", "Reply with exactly the word: ready",
+        "--output-format", "json", "--dangerously-skip-permissions",
+        "--model", model, "--effort", "low",
+    ]
+    try:
+        proc = subprocess.run(
+            cmd, cwd=str(WORK_DIR), capture_output=True, text=True, timeout=timeout
+        )
+    except FileNotFoundError:
+        return False, "the `claude` CLI is not on your PATH (install Claude Code)"
+    except subprocess.TimeoutExpired:
+        return False, f"claude did not respond within {timeout}s"
+    if proc.returncode != 0:
+        err = (proc.stderr or "").strip()
+        cls = classify_claude_error(err)
+        if cls is ClaudeAuthError:
+            return False, "claude is not signed in — run `claude` once and log in"
+        return False, err or "claude exited non-zero (check `claude` works in a terminal)"
+    try:
+        data = json.loads(proc.stdout)
+    except (json.JSONDecodeError, ValueError):
+        return False, "claude returned unexpected output"
+    if data.get("is_error"):
+        return False, str(data.get("result") or "claude reported an error")
+    return True, "signed in and responding"
