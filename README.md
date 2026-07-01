@@ -227,19 +227,13 @@ The included tests are pure functions — no network, token, or model download.
 
 ## Author & support
 
-Built by **skywalqr**.
+Built by **diamonddime**.
 
 - ⭐ **Star the repo** if codriver saved you a commute — that's what helps others find it.
-- 💬 Questions, ideas, or bugs: open an issue<!-- or add a contact: your email / @handle -->.
-- ❤️ **Support development:** [Sponsor](https://github.com/sponsors/skywalqr) <!-- requires enabling GitHub Sponsors on this account -->
-
-<!-- Repo URLs and the sponsor link assume the GitHub handle `skywalqr`.
-     If yours differs, find-replace it here, in .github/FUNDING.yml, and in
-     pyproject.toml [project.urls]. GitHub Sponsors must be enabled for the
-     Sponsor link/button to resolve. -->
+- 💬 Questions, ideas, or bugs: open an issue.
 
 ---
 
 ## License
 
-[MIT](LICENSE) — Copyright (c) 2026 skywalqr.
+[MIT](LICENSE) — Copyright (c) 2026 diamonddime.

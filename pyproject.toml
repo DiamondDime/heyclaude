@@ -9,7 +9,7 @@ description = "Drive Claude Code from Telegram voice notes."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
-authors = [{ name = "skywalqr" }]
+authors = [{ name = "diamonddime" }]
 keywords = [
     "claude",
     "claude-code",
@@ -44,9 +44,9 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/skywalqr/codriver"
-Repository = "https://github.com/skywalqr/codriver"
-Issues = "https://github.com/skywalqr/codriver/issues"
+Homepage = "https://github.com/diamonddime/codriver"
+Repository = "https://github.com/diamonddime/codriver"
+Issues = "https://github.com/diamonddime/codriver/issues"
 
 [project.scripts]
 codriver = "codriver.cli:main"
