@@ -1,4 +1,4 @@
-# codriver
+# heyclaude
 
 Talk to **Claude Code** by voice while you drive.
 
@@ -17,7 +17,7 @@ follow-up requests keep their context.
 
 ## Safety — read this first
 
-codriver is a **remote-code-execution channel into your Mac.** Treat it that way.
+heyclaude is a **remote-code-execution channel into your Mac.** Treat it that way.
 
 - It runs `claude --dangerously-skip-permissions`, so Claude executes commands,
   edits files, and hits the network **without asking for approval.**
@@ -25,7 +25,7 @@ codriver is a **remote-code-execution channel into your Mac.** Treat it that way
   single allowed Telegram user ID. There is no second guard. Anyone who can post
   to your bot as that user gets a shell on your Mac.
 - A working directory is **not** a sandbox. Claude can read and write outside it.
-  Point codriver at a **dedicated, throwaway workspace** — never your home folder
+  Point heyclaude at a **dedicated, throwaway workspace** — never your home folder
   and never a real repo with secrets, SSH keys, or production code.
 - Use a fresh Telegram bot token, keep it out of any directory Claude can reach,
   and rotate it if it is ever exposed.
@@ -36,7 +36,7 @@ If that trade-off is not acceptable to you, do not run this.
 
 ## Driving safety — also read this
 
-codriver is a **hands-free coding aid, not an autopilot.** It is designed so you
+heyclaude is a **hands-free coding aid, not an autopilot.** It is designed so you
 never have to look at or touch a screen — you talk, you listen. But:
 
 - **The road comes first.** Do not let a coding problem pull your attention off
@@ -59,18 +59,18 @@ with no warranty, and the author is not liable for how you use it.
 | Claude's work | **locally** via the `claude` CLI on your subscription |
 | Reply spoken back | **`say`**: fully local · **ElevenLabs**: reply *text* is sent to ElevenLabs to synthesize |
 
-Nothing is sent to the author of codriver. If you want zero third-party speech
+Nothing is sent to the author of heyclaude. If you want zero third-party speech
 services, choose the `say` backend — then only Telegram is in the loop.
 
 ---
 
 ## Using your Claude subscription
 
-codriver drives the `claude` CLI you're already signed into, so it runs on your
+heyclaude drives the `claude` CLI you're already signed into, so it runs on your
 **Claude Code subscription** rather than the paid API. Automating your own
 account this way is for personal use — review the
 [Anthropic Usage Policies](https://www.anthropic.com/legal/aup) and your plan's
-terms, and don't share one login across people. codriver is an independent
+terms, and don't share one login across people. heyclaude is an independent
 project and is not affiliated with or endorsed by Anthropic.
 
 ---
@@ -93,14 +93,14 @@ project and is not affiliated with or endorsed by Anthropic.
 pipx install .
 ```
 
-This installs the `codriver` command.
+This installs the `heyclaude` command.
 
 ---
 
-## Set up: `codriver init`
+## Set up: `heyclaude init`
 
 ```bash
-codriver init
+heyclaude init
 ```
 
 The wizard walks you through everything:
@@ -110,14 +110,14 @@ The wizard walks you through everything:
    bot's `@username` on success).
 3. **Telegram user id** — the numeric id allowed to talk to the bot.
 4. **TTS backend** — pick `elevenlabs` or `say` (see below).
-5. **Workspace** — defaults to `~/codriver-workspace`. It is created, seeded with
+5. **Workspace** — defaults to `~/heyclaude-workspace`. It is created, seeded with
    a `CLAUDE.md` (an existing one is left untouched), and initialized as a git
-   repo on a `codriver-work` branch. The wizard **refuses your home folder, real
+   repo on a `heyclaude-work` branch. The wizard **refuses your home folder, real
    repos, and data dirs** like `~/Documents` or `~/.ssh` — Claude runs destructive
    commands here, so it must be a dedicated, throwaway directory.
-6. Writes `~/.config/codriver/config.toml` (permissions `0600`).
+6. Writes `~/.config/heyclaude/config.toml` (permissions `0600`).
 
-Config lives at `~/.config/codriver/config.toml`, outside the repo. You never
+Config lives at `~/.config/heyclaude/config.toml`, outside the repo. You never
 have to edit it by hand.
 
 ---
@@ -125,14 +125,14 @@ have to edit it by hand.
 ## Run: `start` / `stop` / `status`
 
 ```bash
-codriver doctor           # full preflight: ffmpeg, Telegram, TTS, claude, speech model
-codriver start            # start the bot (begins polling Telegram)
-codriver start --check    # quick check (platform + token + TTS), then exit
-codriver stop             # stop the running bot
-codriver status           # show running (with PID) or stopped
+heyclaude doctor           # full preflight: ffmpeg, Telegram, TTS, claude, speech model
+heyclaude start            # start the bot (begins polling Telegram)
+heyclaude start --check    # quick check (platform + token + TTS), then exit
+heyclaude stop             # stop the running bot
+heyclaude status           # show running (with PID) or stopped
 ```
 
-Run **`codriver doctor`** once before your first drive. Unlike `--check`, it also
+Run **`heyclaude doctor`** once before your first drive. Unlike `--check`, it also
 runs one real `claude` turn to confirm you're signed in and that your build
 accepts the model/effort flags, and it pre-downloads the speech model — so you
 don't discover a problem on the road. The bot also **auto-restarts itself** if it
@@ -143,19 +143,19 @@ notes.
 
 ### Keep it running (optional)
 
-`codriver start` runs in the foreground and stops if you close the terminal. To
+`heyclaude start` runs in the foreground and stops if you close the terminal. To
 run it as a background service that **starts at login and restarts on crash**:
 
 ```bash
-codriver install-service     # install + start the launchd agent
-codriver uninstall-service   # stop + remove it
+heyclaude install-service     # install + start the launchd agent
+heyclaude uninstall-service   # stop + remove it
 ```
 
 The service runs under `caffeinate -i`, which prevents *idle* system sleep **on
 battery** (so the bot keeps polling while you drive). Caveats: closing the laptop
-lid still pauses it, and once installed, `codriver stop` won't keep it down —
-launchd relaunches it, so use **`codriver uninstall-service`** to stop it for
-good. Logs land in `~/.config/codriver/bot.log`. Save your token via `codriver
+lid still pauses it, and once installed, `heyclaude stop` won't keep it down —
+launchd relaunches it, so use **`heyclaude uninstall-service`** to stop it for
+good. Logs land in `~/.config/heyclaude/bot.log`. Save your token via `heyclaude
 init` (not just an env var) before installing — the service runs with a clean
 environment.
 
@@ -163,17 +163,17 @@ environment.
 
 ## Text-to-speech backends
 
-codriver can speak its replies two ways:
+heyclaude can speak its replies two ways:
 
 - **`say`** — macOS's built-in speech (voice `Samantha`). Zero setup, no account,
   works offline. Robotic but fine.
 - **`elevenlabs`** — natural, human-sounding voices. Needs an API key. During
-  `codriver init` the bot lists your available ElevenLabs voices so you can pick
+  `heyclaude init` the bot lists your available ElevenLabs voices so you can pick
   one.
 
 **Get a free ElevenLabs API key: https://try.elevenlabs.io/ihajsceo1jo8**
 
-> That's a referral link — signing up through it supports codriver at no extra
+> That's a referral link — signing up through it supports heyclaude at no extra
 > cost to you. The tool works identically with any ElevenLabs key, or with the
 > free local `say` voice, so use whatever you prefer.
 
@@ -201,14 +201,14 @@ Higher effort = deeper reasoning, slower replies. `opus` is the most capable;
 
 | File | Responsibility |
 |------|----------------|
-| `codriver/config.py` | config loading (env > `config.toml` > defaults), whitelist, paths |
-| `codriver/stt.py`    | local Whisper transcription |
-| `codriver/brain.py`  | runs `claude -p --resume` with the chosen model + effort, keeps session continuity |
-| `codriver/tts.py`    | text → spoken OGG/Opus (ElevenLabs or `say`) |
-| `codriver/bot.py`    | Telegram handlers (voice + slash commands) and wiring |
-| `codriver/commands.py` | parses in-bot commands (effort / model / config / reset) |
-| `codriver/runtime.py`  | live-switchable effort + model, persisted to `runtime.json` |
-| `codriver/cli.py`    | `init` / `start` / `stop` / `status` |
+| `heyclaude/config.py` | config loading (env > `config.toml` > defaults), whitelist, paths |
+| `heyclaude/stt.py`    | local Whisper transcription |
+| `heyclaude/brain.py`  | runs `claude -p --resume` with the chosen model + effort, keeps session continuity |
+| `heyclaude/tts.py`    | text → spoken OGG/Opus (ElevenLabs or `say`) |
+| `heyclaude/bot.py`    | Telegram handlers (voice + slash commands) and wiring |
+| `heyclaude/commands.py` | parses in-bot commands (effort / model / config / reset) |
+| `heyclaude/runtime.py`  | live-switchable effort + model, persisted to `runtime.json` |
+| `heyclaude/cli.py`    | `init` / `start` / `stop` / `status` |
 
 Transcription runs locally with Whisper. Replies are encoded as mono Opus, the
 format Telegram voice messages require.
@@ -229,7 +229,7 @@ The included tests are pure functions — no network, token, or model download.
 
 Built by **diamonddime**.
 
-- ⭐ **Star the repo** if codriver saved you a commute — that's what helps others find it.
+- ⭐ **Star the repo** if heyclaude saved you a commute — that's what helps others find it.
 - 💬 Questions, ideas, or bugs: open an issue.
 
 ---

@@ -1,4 +1,4 @@
-from codriver.config import is_allowed
+from heyclaude.config import is_allowed
 
 
 def test_allows_owner():

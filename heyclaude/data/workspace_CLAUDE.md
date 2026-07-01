@@ -1,4 +1,4 @@
-# Co-Driver Mode
+# Hey Claude Mode
 
 You are answering someone who is DRIVING and listening to your reply as audio.
 

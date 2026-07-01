@@ -19,13 +19,13 @@ def _keychain_token() -> str:
     """Read the bot token from the macOS Keychain (off-disk, out of Claude's
     reachable path). Stored once with:
 
-        security add-generic-password -s codriver-bot -a "$USER" -w '<token>'
+        security add-generic-password -s heyclaude-bot -a "$USER" -w '<token>'
 
     Returns "" on any platform/error so callers can fall back to env vars.
     """
     try:
         out = subprocess.run(
-            ["security", "find-generic-password", "-s", "codriver-bot", "-w"],
+            ["security", "find-generic-password", "-s", "heyclaude-bot", "-w"],
             capture_output=True,
             text=True,
             timeout=5,
@@ -37,11 +37,11 @@ def _keychain_token() -> str:
     return ""
 
 
-# config.toml lives OUTSIDE the repo (under ~/.config/codriver) so a
+# config.toml lives OUTSIDE the repo (under ~/.config/heyclaude) so a
 # skip-permissions Claude running in the workspace cannot read it. The dir is
-# overridable via CODRIVER_CONFIG_DIR for tests / non-default installs.
+# overridable via HEYCLAUDE_CONFIG_DIR for tests / non-default installs.
 CONFIG_DIR = Path(
-    os.environ.get("CODRIVER_CONFIG_DIR", str(Path.home() / ".config" / "codriver"))
+    os.environ.get("HEYCLAUDE_CONFIG_DIR", str(Path.home() / ".config" / "heyclaude"))
 )
 CONFIG_FILE = CONFIG_DIR / "config.toml"
 
@@ -103,26 +103,26 @@ except (TypeError, ValueError):
     _toml_allowed = 0
 ALLOWED_USER_ID = _int_env("ALLOWED_USER_ID", _toml_allowed)
 
-# WORK_DIR: env CODRIVER_WORKDIR > [claude].workdir > ~/codriver-workspace.
-_default_workdir = str(Path.home() / "codriver-workspace")
+# WORK_DIR: env HEYCLAUDE_WORKDIR > [claude].workdir > ~/heyclaude-workspace.
+_default_workdir = str(Path.home() / "heyclaude-workspace")
 WORK_DIR = Path(
-    os.environ.get("CODRIVER_WORKDIR", "")
+    os.environ.get("HEYCLAUDE_WORKDIR", "")
     or _toml_str(_claude.get("workdir"), _default_workdir)
 )
 
 # Optional OS-level confinement for Claude (finding #3). Off by default so the
 # default path is unchanged; cwd alone is NOT a jail. When enabled, brain.py
 # wraps each `claude` call in `sandbox-exec -f <profile>`.
-SANDBOX_ENABLED = os.environ.get("CODRIVER_SANDBOX", "") == "1"
+SANDBOX_ENABLED = os.environ.get("HEYCLAUDE_SANDBOX", "") == "1"
 SANDBOX_PROFILE = Path(
-    os.environ.get("CODRIVER_SANDBOX_PROFILE", str(Path(__file__).parent / "codriver.sb"))
+    os.environ.get("HEYCLAUDE_SANDBOX_PROFILE", str(Path(__file__).parent / "heyclaude.sb"))
 )
 
 # Default TTS voice: Samantha is actually installed on this Mac. `say` returns
 # exit code 0 for a missing voice and silently uses the OS default, so we pin to
 # an installed voice and validate at runtime (tts.py).
-# Precedence: env CODRIVER_VOICE > [tts.say].voice > "Samantha".
-DEFAULT_TTS_VOICE = os.environ.get("CODRIVER_VOICE", "") or _toml_str(
+# Precedence: env HEYCLAUDE_VOICE > [tts.say].voice > "Samantha".
+DEFAULT_TTS_VOICE = os.environ.get("HEYCLAUDE_VOICE", "") or _toml_str(
     _tts_say.get("voice"), "Samantha"
 )
 DEFAULT_TTS_FALLBACK_VOICE = "Samantha"
@@ -134,9 +134,9 @@ OPUS_BITRATE = "32k"
 OPUS_CHANNELS = 1
 
 # TTS backend: "say" (local macOS, robotic, free) or "elevenlabs" (cloud, human).
-# Precedence: env CODRIVER_TTS_BACKEND > [tts].backend > "say".
+# Precedence: env HEYCLAUDE_TTS_BACKEND > [tts].backend > "say".
 TTS_BACKEND = (
-    os.environ.get("CODRIVER_TTS_BACKEND", "") or _toml_str(_tts.get("backend"), "say")
+    os.environ.get("HEYCLAUDE_TTS_BACKEND", "") or _toml_str(_tts.get("backend"), "say")
 ).strip().lower()
 # Precedence: env ELEVENLABS_API_KEY > [tts.elevenlabs].api_key > "".
 ELEVENLABS_API_KEY = (
@@ -160,26 +160,26 @@ ELEVENLABS_MODEL = (
 # known Homebrew location.
 FFMPEG_PATH = shutil.which("ffmpeg") or "/opt/homebrew/bin/ffmpeg"
 
-WHISPER_MODEL = os.environ.get("CODRIVER_WHISPER", "base.en")
-SESSION_FILE = WORK_DIR / ".codriver_session"
-# CLAUDE_TIMEOUT: env CODRIVER_TIMEOUT > [claude].timeout > 600.
+WHISPER_MODEL = os.environ.get("HEYCLAUDE_WHISPER", "base.en")
+SESSION_FILE = WORK_DIR / ".heyclaude_session"
+# CLAUDE_TIMEOUT: env HEYCLAUDE_TIMEOUT > [claude].timeout > 600.
 _toml_timeout = _claude.get("timeout", 600)
 try:
     _toml_timeout = int(_toml_timeout)
 except (TypeError, ValueError):
     _toml_timeout = 600
-CLAUDE_TIMEOUT = _int_env("CODRIVER_TIMEOUT", _toml_timeout)
+CLAUDE_TIMEOUT = _int_env("HEYCLAUDE_TIMEOUT", _toml_timeout)
 
 # Reasoning effort for each claude turn. Valid CLI levels: low, medium, high,
 # xhigh, max (an unknown value is ignored by the CLI, falling back to default).
-# Precedence: env CODRIVER_EFFORT > [claude].effort > "xhigh".
+# Precedence: env HEYCLAUDE_EFFORT > [claude].effort > "xhigh".
 CLAUDE_EFFORT = (
-    os.environ.get("CODRIVER_EFFORT", "") or _toml_str(_claude.get("effort"), "xhigh")
+    os.environ.get("HEYCLAUDE_EFFORT", "") or _toml_str(_claude.get("effort"), "xhigh")
 ).strip().lower()
-# Model for each claude turn. Precedence: env CODRIVER_MODEL > [claude].model >
+# Model for each claude turn. Precedence: env HEYCLAUDE_MODEL > [claude].model >
 # "claude-opus-4-8". These are runtime DEFAULTS; the bot can switch live (runtime.py).
 CLAUDE_MODEL = (
-    os.environ.get("CODRIVER_MODEL", "") or _toml_str(_claude.get("model"), "claude-opus-4-8")
+    os.environ.get("HEYCLAUDE_MODEL", "") or _toml_str(_claude.get("model"), "claude-opus-4-8")
 ).strip()
 
 

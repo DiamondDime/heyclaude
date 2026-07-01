@@ -1,7 +1,7 @@
-;; codriver.sb — macOS sandbox-exec profile for confining the `claude` CLI.
+;; heyclaude.sb — macOS sandbox-exec profile for confining the `claude` CLI.
 ;;
-;; Opt-in: set CODRIVER_SANDBOX=1. brain.py invokes:
-;;   sandbox-exec -D WORK=<workdir> -D HOME=<home> -f codriver.sb claude ...
+;; Opt-in: set HEYCLAUDE_SANDBOX=1. brain.py invokes:
+;;   sandbox-exec -D WORK=<workdir> -D HOME=<home> -f heyclaude.sb claude ...
 ;;
 ;; cwd is NOT a jail under --dangerously-skip-permissions, so this profile adds a
 ;; real OS boundary: Claude cannot write outside the sandbox workdir and cannot

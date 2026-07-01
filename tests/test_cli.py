@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from codriver.cli import validate_workdir
+from heyclaude.cli import validate_workdir
 
 
 def test_refuses_home(tmp_path):
@@ -40,7 +40,7 @@ def test_refuses_inside_ssh(tmp_path):
 def test_allows_dedicated_workspace(tmp_path):
     home = tmp_path / "home" / "alice"
     home.mkdir(parents=True)
-    assert validate_workdir(home / "codriver-workspace", home) is None
+    assert validate_workdir(home / "heyclaude-workspace", home) is None
     assert validate_workdir(home / "work" / "scratch", home) is None
     assert validate_workdir(tmp_path / "elsewhere", home) is None
 
@@ -68,14 +68,14 @@ def test_refuses_miscased_home_prefix(tmp_path):
 def _mute_loops(monkeypatch):
     # Keep the supervisor's per-iteration loop swap from creating real loops in
     # the test process; the loop fix itself is verified separately.
-    from codriver import cli
+    from heyclaude import cli
     monkeypatch.setattr(cli.asyncio, "new_event_loop", lambda: None)
     monkeypatch.setattr(cli.asyncio, "set_event_loop", lambda *_a, **_k: None)
     monkeypatch.setattr(cli.time, "sleep", lambda *_a, **_k: None)
 
 
 def test_supervisor_restarts_after_crash(monkeypatch):
-    from codriver import cli, bot
+    from heyclaude import cli, bot
     _mute_loops(monkeypatch)
     seq = iter([RuntimeError("boom"), None])  # crash once, then clean return
     calls = []
@@ -92,7 +92,7 @@ def test_supervisor_restarts_after_crash(monkeypatch):
 
 
 def test_supervisor_circuit_breaker(monkeypatch):
-    from codriver import cli, bot
+    from heyclaude import cli, bot
     _mute_loops(monkeypatch)
     calls = []
 

@@ -1,4 +1,4 @@
-from codriver.commands import parse_command, friendly_model
+from heyclaude.commands import parse_command, friendly_model
 
 
 def test_effort_slash():

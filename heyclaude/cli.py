@@ -1,14 +1,14 @@
-"""Command-line interface for Co-Driver.
+"""Command-line interface for Hey Claude.
 
 Subcommands:
-  codriver init    interactive onboarding wizard
-  codriver start   start the bot (or --check to validate config only)
-  codriver stop    stop a running bot
-  codriver status  report running / stopped
+  heyclaude init    interactive onboarding wizard
+  heyclaude start   start the bot (or --check to validate config only)
+  heyclaude stop    stop a running bot
+  heyclaude status  report running / stopped
 
 Uses only the standard library plus httpx (HTTP) and tomli_w (TOML writing).
-The config file and PID file live under ~/.config/codriver (overridable with
-CODRIVER_CONFIG_DIR), OUTSIDE the project repo. Secrets are never printed.
+The config file and PID file live under ~/.config/heyclaude (overridable with
+HEYCLAUDE_CONFIG_DIR), OUTSIDE the project repo. Secrets are never printed.
 """
 
 import argparse
@@ -39,12 +39,12 @@ import tomli_w
 # --- Paths -----------------------------------------------------------------
 # Computed locally (not imported from config) so the CLI stays usable even if
 # the config module fails to import. Mirrors config.py's resolution exactly:
-# env CODRIVER_CONFIG_DIR > ~/.config/codriver.
+# env HEYCLAUDE_CONFIG_DIR > ~/.config/heyclaude.
 def _config_dir() -> Path:
-    override = os.environ.get("CODRIVER_CONFIG_DIR", "").strip()
+    override = os.environ.get("HEYCLAUDE_CONFIG_DIR", "").strip()
     if override:
         return Path(override).expanduser()
-    return Path.home() / ".config" / "codriver"
+    return Path.home() / ".config" / "heyclaude"
 
 
 def _config_file() -> Path:
@@ -52,17 +52,17 @@ def _config_file() -> Path:
 
 
 def _pid_file() -> Path:
-    return _config_dir() / "codriver.pid"
+    return _config_dir() / "heyclaude.pid"
 
 
 def _workspace_template() -> str:
     """The CLAUDE.md seeded into a new workspace, read from packaged data so it
     ships with `pip install` (the old repo-relative path didn't exist in a wheel,
     so the seed silently no-op'd for every installed user)."""
-    return resources.files("codriver").joinpath("data/workspace_CLAUDE.md").read_text()
+    return resources.files("heyclaude").joinpath("data/workspace_CLAUDE.md").read_text()
 
 
-DEFAULT_WORKDIR = Path.home() / "codriver-workspace"
+DEFAULT_WORKDIR = Path.home() / "heyclaude-workspace"
 ELEVENLABS_MODEL = "eleven_turbo_v2_5"
 SAY_DEFAULT_VOICE = "Samantha"
 HTTP_TIMEOUT = 20.0
@@ -238,7 +238,7 @@ def validate_workdir(path: Path, home: Path) -> str | None:
 def _require_macos() -> None:
     if platform.system() != "Darwin":
         print(
-            "codriver is macOS-only — it uses the `say` voice and Apple audio.",
+            "heyclaude is macOS-only — it uses the `say` voice and Apple audio.",
             file=sys.stderr,
         )
         sys.exit(2)
@@ -272,10 +272,10 @@ def _git_init_workspace(workdir: Path) -> None:
                 capture_output=True, text=True,
             )
         subprocess.run(
-            ["git", "checkout", "-b", "codriver-work"], cwd=workdir,
+            ["git", "checkout", "-b", "heyclaude-work"], cwd=workdir,
             check=True, capture_output=True, text=True,
         )
-        print("  Initialized git repo on branch 'codriver-work'.")
+        print("  Initialized git repo on branch 'heyclaude-work'.")
     except subprocess.CalledProcessError:
         # Branch may already exist, or git declined — not fatal.
         pass
@@ -298,7 +298,7 @@ def _setup_workdir() -> Path:
 
         # An existing non-empty dir (especially a real repo) is dangerous: confirm.
         if workdir.exists():
-            ignorable = {".git", "CLAUDE.md", ".codriver_session"}
+            ignorable = {".git", "CLAUDE.md", ".heyclaude_session"}
             try:
                 leftovers = [e for e in workdir.iterdir() if e.name not in ignorable]
             except OSError:
@@ -325,7 +325,7 @@ def _setup_workdir() -> Path:
 def cmd_init(args) -> int:
     _require_macos()
     print("=" * 64)
-    print("Co-Driver setup")
+    print("Hey Claude setup")
     print("=" * 64)
     print(
         "\nSAFETY NOTICE\n"
@@ -376,7 +376,7 @@ def cmd_init(args) -> int:
     # road doesn't stall on a ~140MB fetch over cellular.
     _warm_whisper()
 
-    print("\nDone. Run: codriver start --check   (then: codriver start)")
+    print("\nDone. Run: heyclaude start --check   (then: heyclaude start)")
     return 0
 
 
@@ -433,7 +433,7 @@ def _preflight(warm_whisper: bool, check_claude: bool = True) -> int:
         el_key = ((data.get("tts") or {}).get("elevenlabs") or {}).get("api_key", "")
 
     if not token:
-        print("FAIL  no bot token configured — run: codriver init", file=sys.stderr)
+        print("FAIL  no bot token configured — run: heyclaude init", file=sys.stderr)
         return 1
     tg_ok, msg = _validate_telegram_token(token)
     if tg_ok:
@@ -482,22 +482,22 @@ def cmd_start(args) -> int:
     # so env-only setups (no config.toml) still work for backward compat.
     from . import config as cfg
     if not cfg.TOKEN:
-        print("No bot token configured. Run: codriver init", file=sys.stderr)
+        print("No bot token configured. Run: heyclaude init", file=sys.stderr)
         return 1
 
     if args.check:
-        # Skip the live claude turn here for speed; `codriver doctor` does that.
+        # Skip the live claude turn here for speed; `heyclaude doctor` does that.
         return _preflight(warm_whisper=False, check_claude=False)
 
     # Refuse to start a second instance: two pollers on one token => Telegram 409,
     # and overwriting the PID file would orphan the first (stop could not find it).
     existing = _read_pid()
     if existing and _process_alive(existing):
-        print(f"Already running (PID {existing}). Run 'codriver stop' first.",
+        print(f"Already running (PID {existing}). Run 'heyclaude stop' first.",
               file=sys.stderr)
         return 1
 
-    # Record our PID so `codriver stop` / `status` can find us.
+    # Record our PID so `heyclaude stop` / `status` can find us.
     cfg_dir = _config_dir()
     cfg_dir.mkdir(parents=True, exist_ok=True)
     pid_file = _pid_file()
@@ -516,7 +516,7 @@ def cmd_start(args) -> int:
 def _supervise_bot() -> None:
     """Run the bot, auto-restarting after an unexpected crash so a transient
     failure mid-drive doesn't leave the driver with a dead bot for the rest of
-    the trip. A clean shutdown (SIGTERM via `codriver stop`, Ctrl-C) or a fatal
+    the trip. A clean shutdown (SIGTERM via `heyclaude stop`, Ctrl-C) or a fatal
     config error (bad token) stops for good instead of looping."""
     from . import bot
     try:
@@ -540,7 +540,7 @@ def _supervise_bot() -> None:
         except KeyboardInterrupt:
             return
         except InvalidToken:
-            print("Bot token is invalid — not restarting. Run: codriver init",
+            print("Bot token is invalid — not restarting. Run: heyclaude init",
                   file=sys.stderr)
             return
         except Exception as exc:
@@ -548,7 +548,7 @@ def _supervise_bot() -> None:
             restarts = [t for t in restarts if now - t < 60]
             restarts.append(now)
             if len(restarts) > 5:
-                print("Bot crashed repeatedly; giving up. Try: codriver doctor",
+                print("Bot crashed repeatedly; giving up. Try: heyclaude doctor",
                       file=sys.stderr)
                 return
             print(f"Bot crashed ({exc}); restarting in {backoff}s…", file=sys.stderr)
@@ -576,9 +576,9 @@ def _process_alive(pid: int) -> bool:
     return True
 
 
-def _is_codriver_process(pid: int) -> bool:
+def _is_heyclaude_process(pid: int) -> bool:
     """Best-effort guard against PID reuse: confirm the process still looks like
-    codriver before signalling it. Fails open (returns True) if we can't tell."""
+    heyclaude before signalling it. Fails open (returns True) if we can't tell."""
     try:
         out = subprocess.run(
             ["ps", "-p", str(pid), "-o", "command="],
@@ -588,26 +588,26 @@ def _is_codriver_process(pid: int) -> bool:
         return True
     if out.returncode != 0:
         return True
-    return "codriver" in out.stdout
+    return "heyclaude" in out.stdout
 
 
 def cmd_stop(args) -> int:
     pid_file = _pid_file()
     pid = _read_pid()
     if pid is None:
-        print("Co-Driver is not running (no PID file).")
+        print("Hey Claude is not running (no PID file).")
         return 0
     if not _process_alive(pid):
         print(f"No process {pid} running; clearing stale PID file.")
         pid_file.unlink(missing_ok=True)
         return 0
-    if not _is_codriver_process(pid):
-        print(f"PID {pid} is not a codriver process; clearing stale PID file.")
+    if not _is_heyclaude_process(pid):
+        print(f"PID {pid} is not a heyclaude process; clearing stale PID file.")
         pid_file.unlink(missing_ok=True)
         return 0
     try:
         os.kill(pid, signal.SIGTERM)
-        print(f"Stopped Co-Driver (PID {pid}).")
+        print(f"Stopped Hey Claude (PID {pid}).")
     except OSError as exc:
         print(f"Could not stop PID {pid}: {exc}", file=sys.stderr)
         return 1
@@ -626,7 +626,7 @@ def cmd_status(args) -> int:
 
 
 # --- launchd service (optional, macOS) -------------------------------------
-SERVICE_LABEL = "com.codriver.bot"
+SERVICE_LABEL = "com.heyclaude.bot"
 
 
 def _service_plist_path() -> Path:
@@ -634,8 +634,8 @@ def _service_plist_path() -> Path:
 
 
 def _build_plist() -> bytes:
-    # Run via `python -m codriver.cli start` so it works regardless of where the
-    # `codriver` script landed on PATH. Built with plistlib so paths are escaped
+    # Run via `python -m heyclaude.cli start` so it works regardless of where the
+    # `heyclaude` script landed on PATH. Built with plistlib so paths are escaped
     # correctly.
     logs = _config_dir()
     plist = {
@@ -646,7 +646,7 @@ def _build_plist() -> bytes:
             # cannot stop sleep, which is the likeliest reason a bot goes quiet
             # mid-drive. Closing the laptop lid still pauses it.
             "/usr/bin/caffeinate", "-i",
-            sys.executable, "-m", "codriver.cli", "start",
+            sys.executable, "-m", "heyclaude.cli", "start",
         ],
         "RunAtLoad": True,
         "KeepAlive": True,
@@ -666,7 +666,7 @@ def cmd_install_service(args) -> int:
     _require_macos()
     from . import config as cfg
     if not cfg.TOKEN:
-        print("Configure the bot first. Run: codriver init", file=sys.stderr)
+        print("Configure the bot first. Run: heyclaude init", file=sys.stderr)
         return 1
     # The service runs with a CLEAN environment, so a token that only exists as an
     # exported env var is invisible to it. Require a persistent source.
@@ -674,7 +674,7 @@ def cmd_install_service(args) -> int:
     has_persistent = bool((data.get("telegram") or {}).get("bot_token")) or bool(cfg._keychain_token())
     if not has_persistent:
         print("Your bot token comes from an environment variable, which the "
-              "background service can't see. Run `codriver init` to save it to "
+              "background service can't see. Run `heyclaude init` to save it to "
               "config.toml first.", file=sys.stderr)
         return 1
     plist = _service_plist_path()
@@ -691,16 +691,16 @@ def cmd_install_service(args) -> int:
               file=sys.stderr)
         print("Load it manually with: launchctl load -w " + str(plist))
         return 1
-    print(f"Installed and started the codriver service ({SERVICE_LABEL}).")
+    print(f"Installed and started the heyclaude service ({SERVICE_LABEL}).")
     print(f"  It auto-starts at login and restarts on crash. Logs: {_config_dir() / 'bot.log'}")
-    print("  Remove it with: codriver uninstall-service")
+    print("  Remove it with: heyclaude uninstall-service")
     return 0
 
 
 def cmd_uninstall_service(args) -> int:
     plist = _service_plist_path()
     if not plist.exists():
-        print("No codriver service installed.")
+        print("No heyclaude service installed.")
         return 0
     subprocess.run(["launchctl", "unload", str(plist)],
                    capture_output=True, text=True)
@@ -709,14 +709,14 @@ def cmd_uninstall_service(args) -> int:
     except OSError as exc:
         print(f"Could not remove {plist}: {exc}", file=sys.stderr)
         return 1
-    print("Uninstalled the codriver service.")
+    print("Uninstalled the heyclaude service.")
     return 0
 
 
 # --- argparse wiring -------------------------------------------------------
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="codriver",
+        prog="heyclaude",
         description="Drive Claude Code from Telegram voice notes.",
     )
     sub = parser.add_subparsers(dest="command")

@@ -7,7 +7,7 @@ from functools import lru_cache
 
 import httpx
 
-log = logging.getLogger("codriver")
+log = logging.getLogger("heyclaude")
 
 from .config import (
     DEFAULT_TTS_VOICE,

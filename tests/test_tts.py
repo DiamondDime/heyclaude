@@ -1,4 +1,4 @@
-from codriver.tts import strip_for_speech
+from heyclaude.tts import strip_for_speech
 
 
 def test_strips_code_fences():

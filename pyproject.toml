@@ -3,9 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "codriver"
+name = "heyclaude"
 version = "0.1.0"
-description = "Drive Claude Code from Telegram voice notes."
+description = "Give Claude Code a voice — talk to it hands-free over Telegram voice notes."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
@@ -44,14 +44,14 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/diamonddime/codriver"
-Repository = "https://github.com/diamonddime/codriver"
-Issues = "https://github.com/diamonddime/codriver/issues"
+Homepage = "https://github.com/diamonddime/heyclaude"
+Repository = "https://github.com/diamonddime/heyclaude"
+Issues = "https://github.com/diamonddime/heyclaude/issues"
 
 [project.scripts]
-codriver = "codriver.cli:main"
+heyclaude = "heyclaude.cli:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["codriver"]
+packages = ["heyclaude"]
 # Non-Python files under the package (the seeded workspace CLAUDE.md) are
 # included automatically by hatchling — no force-include needed.

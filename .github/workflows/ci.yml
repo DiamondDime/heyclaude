@@ -6,7 +6,7 @@ on:
 
 jobs:
   test:
-    # codriver is macOS-only (uses the `say` voice + Apple audio), so the test
+    # heyclaude is macOS-only (uses the `say` voice + Apple audio), so the test
     # matrix runs on macOS to match the supported platform.
     runs-on: macos-latest
     steps:

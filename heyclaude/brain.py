@@ -13,14 +13,14 @@ from .config import (
     SANDBOX_PROFILE,
 )
 
-log = logging.getLogger("codriver")
+log = logging.getLogger("heyclaude")
 
 # WARNING: `--dangerously-skip-permissions` gives Claude UNRESTRICTED access to
 # the whole filesystem and network. `cwd=WORK_DIR` is only a working directory,
 # NOT a jail — Claude can still read ~/.ssh, exfiltrate via curl, or rm -rf $HOME
 # regardless of cwd. The single-user whitelist (config.is_allowed) is the only
-# always-on boundary. Set CODRIVER_SANDBOX=1 to additionally wrap each call in a
-# macOS sandbox-exec profile (see codriver/codriver.sb).
+# always-on boundary. Set HEYCLAUDE_SANDBOX=1 to additionally wrap each call in a
+# macOS sandbox-exec profile (see heyclaude/heyclaude.sb).
 FRESH_SESSION_NOTICE = "Heads up — I started a fresh session. "
 
 
@@ -85,7 +85,7 @@ def build_command(prompt: str, session_file: Path, allow_resume: bool = True,
 def _maybe_sandbox(cmd: list[str]) -> list[str]:
     """Optionally confine Claude with a macOS sandbox-exec profile.
 
-    Opt-in via CODRIVER_SANDBOX=1. Off by default so the default path is
+    Opt-in via HEYCLAUDE_SANDBOX=1. Off by default so the default path is
     unchanged; validate the profile against a real `claude` run before relying
     on it, since over-tight deny rules can break Claude mid-drive.
     """
@@ -118,7 +118,7 @@ def _run(cmd: list[str]) -> subprocess.CompletedProcess:
 
 def ask_claude(prompt: str, session_file: Path | None = None,
                effort: str | None = None, model: str | None = None) -> str:
-    session_file = session_file or (WORK_DIR / ".codriver_session")
+    session_file = session_file or (WORK_DIR / ".heyclaude_session")
     effort = effort or CLAUDE_EFFORT
     model = model or CLAUDE_MODEL
 

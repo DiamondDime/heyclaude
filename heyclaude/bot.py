@@ -19,7 +19,7 @@ from .tts import to_voice_ogg
 from . import commands, runtime
 
 logging.basicConfig(level=logging.INFO)
-log = logging.getLogger("codriver")
+log = logging.getLogger("heyclaude")
 
 # Serialize: one Claude task at a time. A second voice note waits its turn.
 _lock = asyncio.Lock()
@@ -234,7 +234,7 @@ def main():
     app.add_handler(CommandHandler(["help", "start"], cmd_help))
     app.add_handler(MessageHandler(filters.VOICE, on_voice))
     app.add_error_handler(_on_error)
-    log.info("Co-Driver running. Send a voice note.")
+    log.info("Hey Claude running. Send a voice note.")
     # bootstrap_retries=-1: a network blip during startup (getMe/Initialize)
     # otherwise aborts the whole process with exit 1. Retry the bootstrap
     # forever so a flaky moment at launch can't leave you with a dead bot.
