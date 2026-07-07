@@ -20,10 +20,10 @@ from .config import (
     ELEVENLABS_VOICE_ID,
     ELEVENLABS_MODEL,
     KOKORO_VOICE,
-    KOKORO_MODEL,
+    KOKORO_ONNX_PATH,
+    KOKORO_VOICES_PATH,
     KOKORO_LANG,
     KOKORO_SPEED,
-    KOKORO_SAMPLE_RATE,
 )
 
 
@@ -135,33 +135,29 @@ def _ensure_espeak() -> None:
 
 @lru_cache(maxsize=1)
 def _kokoro_model():
-    """Load Kokoro once (lazy — keeps mlx-audio out of the import path for
+    """Load Kokoro once (lazy — keeps the heavy deps out of the import path for
     non-Kokoro installs) and cache it for the process lifetime."""
     _ensure_espeak()
-    from mlx_audio.tts.utils import load_model
-    return load_model(KOKORO_MODEL)
+    from kokoro_onnx import Kokoro
+    return Kokoro(KOKORO_ONNX_PATH, KOKORO_VOICES_PATH)
 
 
 def _synthesize_kokoro(spoken: str) -> str:
-    """Return path to a WAV synthesized locally by Kokoro (mlx-audio)."""
+    """Return path to a WAV synthesized locally by Kokoro (kokoro-onnx)."""
     import numpy as np
     import soundfile as sf
 
     model = _kokoro_model()
-    segments = list(
-        model.generate(text=spoken, voice=KOKORO_VOICE, speed=KOKORO_SPEED, lang_code=KOKORO_LANG)
+    samples, sample_rate = model.create(
+        spoken, voice=KOKORO_VOICE, speed=KOKORO_SPEED, lang=KOKORO_LANG
     )
-    audio = (
-        np.concatenate([np.asarray(s.audio, dtype=np.float32).reshape(-1) for s in segments])
-        if segments
-        else np.empty(0, dtype=np.float32)
-    )
-    if audio.size == 0:
+    samples = np.asarray(samples, dtype=np.float32).reshape(-1)
+    if samples.size == 0:
         raise RuntimeError("Kokoro produced no audio")
     fd, wav = tempfile.mkstemp(suffix=".wav")
     os.close(fd)
     try:
-        sf.write(wav, audio, KOKORO_SAMPLE_RATE)
+        sf.write(wav, samples, sample_rate)
     except Exception:
         if os.path.exists(wav):
             os.remove(wav)

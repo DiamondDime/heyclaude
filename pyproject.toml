@@ -44,19 +44,16 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Local neural voice (Kokoro via mlx-audio, Apple Silicon). Free + offline, no
-# quota. Install with:  pip install 'heyclaude[kokoro]'
-# Out-of-dictionary words need the espeak-ng library — the bundled
-# espeakng-loader covers it, or `brew install espeak-ng` for the system one.
-# On Python 3.14 add --only-binary=:all: so spacy resolves to a wheel.
+# Local neural voice (Kokoro via kokoro-onnx). Free + offline, no quota. The
+# ONNX vocoder is stable (mlx-audio has an istft length bug on longer replies).
+# Install with:  pip install 'heyclaude[kokoro]'
+# then fetch the model files:  heyclaude download-voice
+# Phonemization uses espeak-ng — the bundled espeakng-loader covers it, or
+# `brew install espeak-ng` for the system library.
 kokoro = [
-    "mlx-audio",
-    "misaki",
-    "num2words",
-    "spacy>=3.8.13",
-    "phonemizer",
-    "espeakng-loader",
+    "kokoro-onnx",
     "soundfile",
+    "espeakng-loader",
 ]
 
 [project.urls]

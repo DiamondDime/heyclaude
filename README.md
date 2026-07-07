@@ -165,17 +165,19 @@ environment.
 
 heyclaude can speak its replies three ways (set `[tts].backend` in your config):
 
-- **`kokoro`** *(recommended)* — a local neural voice (Kokoro-82M via mlx-audio)
-  that runs on Apple Silicon. **Natural intonation, free, unlimited, offline —
-  no quota.** Install the extra once:
+- **`kokoro`** *(recommended)* — a local neural voice (Kokoro-82M via
+  kokoro-onnx). **Natural intonation, free, unlimited, offline — no quota.**
+  Set it up once:
 
   ```bash
   pip install 'heyclaude[kokoro]'
-  brew install espeak-ng        # for out-of-dictionary words (or the bundled loader covers it)
+  brew install espeak-ng     # phonemizes out-of-dictionary words (or the bundled loader covers it)
+  heyclaude download-voice   # fetch the model files (~340MB, one-time)
   ```
 
-  Pick a voice with `[tts.kokoro].voice` (e.g. `af_heart`, `am_adam`, `bf_emma`,
-  `bm_george`). First reply loads the model (~330 MB, one-time download).
+  Then set `[tts].backend = "kokoro"`. Pick a voice with `[tts.kokoro].voice`
+  (e.g. `af_heart`, `am_adam`, `bf_emma`, `bm_george`). The first reply loads the
+  model into memory (a second or two), then it's faster than real-time.
 - **`elevenlabs`** — cloud, very human, but **metered** (the free tier is ~10k
   credits/month ≈ a handful of replies). Needs an API key; if the quota runs out
   mid-reply it automatically falls back to `say` so you still hear the answer.

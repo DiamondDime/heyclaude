@@ -713,6 +713,34 @@ def cmd_uninstall_service(args) -> int:
     return 0
 
 
+# --- kokoro voice model download -------------------------------------------
+_KOKORO_BASE = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0"
+
+
+def cmd_download_voice(args) -> int:
+    """Download the Kokoro ONNX model + voice pack for the local neural voice."""
+    import urllib.request
+    from . import config as cfg
+
+    targets = [
+        (f"{_KOKORO_BASE}/kokoro-v1.0.onnx", Path(cfg.KOKORO_ONNX_PATH)),
+        (f"{_KOKORO_BASE}/voices-v1.0.bin", Path(cfg.KOKORO_VOICES_PATH)),
+    ]
+    Path(cfg.KOKORO_ONNX_PATH).parent.mkdir(parents=True, exist_ok=True)
+    for url, dest in targets:
+        if dest.exists() and dest.stat().st_size > 1_000_000:
+            print(f"  already have {dest.name}")
+            continue
+        print(f"  downloading {dest.name} … (one-time, ~340MB total)")
+        try:
+            urllib.request.urlretrieve(url, dest)
+        except Exception as exc:  # network / disk
+            print(f"  failed: {exc}", file=sys.stderr)
+            return 1
+    print("Kokoro voice model ready. Set [tts].backend = \"kokoro\" to use it.")
+    return 0
+
+
 # --- argparse wiring -------------------------------------------------------
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -751,6 +779,11 @@ def build_parser() -> argparse.ArgumentParser:
         "uninstall-service", help="remove the launchd auto-start service"
     )
     p_uninstall.set_defaults(func=cmd_uninstall_service)
+
+    p_dl = sub.add_parser(
+        "download-voice", help="download the Kokoro local neural voice model (~340MB)"
+    )
+    p_dl.set_defaults(func=cmd_download_voice)
 
     return parser
 

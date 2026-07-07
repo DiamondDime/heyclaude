@@ -166,13 +166,22 @@ KOKORO_VOICE = (
     os.environ.get("HEYCLAUDE_KOKORO_VOICE", "")
     or _toml_str(_tts_kokoro.get("voice"), "af_heart")
 ).strip()
-KOKORO_MODEL = (
-    os.environ.get("HEYCLAUDE_KOKORO_MODEL", "")
-    or _toml_str(_tts_kokoro.get("model"), "mlx-community/Kokoro-82M-bf16")
+# Model files (Kokoro ONNX + voice pack). Downloaded once into the config dir
+# (see `download_kokoro_models` in cli.py). Runs via kokoro-onnx, whose vocoder
+# is stable — unlike mlx-audio, which has an istft length-mismatch bug on longer
+# replies. Override the paths here if you store the files elsewhere.
+_kokoro_dir = CONFIG_DIR / "models"
+KOKORO_ONNX_PATH = (
+    os.environ.get("HEYCLAUDE_KOKORO_ONNX", "")
+    or _toml_str(_tts_kokoro.get("onnx"), str(_kokoro_dir / "kokoro-v1.0.onnx"))
 ).strip()
-# lang_code: 'a' = American English, 'b' = British English.
+KOKORO_VOICES_PATH = (
+    os.environ.get("HEYCLAUDE_KOKORO_VOICES", "")
+    or _toml_str(_tts_kokoro.get("voices"), str(_kokoro_dir / "voices-v1.0.bin"))
+).strip()
+# lang: "en-us" or "en-gb".
 KOKORO_LANG = (
-    os.environ.get("HEYCLAUDE_KOKORO_LANG", "") or _toml_str(_tts_kokoro.get("lang"), "a")
+    os.environ.get("HEYCLAUDE_KOKORO_LANG", "") or _toml_str(_tts_kokoro.get("lang"), "en-us")
 ).strip()
 try:
     KOKORO_SPEED = float(
@@ -180,7 +189,6 @@ try:
     )
 except (TypeError, ValueError):
     KOKORO_SPEED = 1.0
-KOKORO_SAMPLE_RATE = 24000  # Kokoro outputs 24 kHz audio
 
 # ffmpeg is the Homebrew build, not /usr/bin. Resolve via PATH, fall back to the
 # known Homebrew location.
