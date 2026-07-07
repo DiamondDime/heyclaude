@@ -43,6 +43,22 @@ dependencies = [
     "tomli-w>=1.0",
 ]
 
+[project.optional-dependencies]
+# Local neural voice (Kokoro via mlx-audio, Apple Silicon). Free + offline, no
+# quota. Install with:  pip install 'heyclaude[kokoro]'
+# Out-of-dictionary words need the espeak-ng library — the bundled
+# espeakng-loader covers it, or `brew install espeak-ng` for the system one.
+# On Python 3.14 add --only-binary=:all: so spacy resolves to a wheel.
+kokoro = [
+    "mlx-audio",
+    "misaki",
+    "num2words",
+    "spacy>=3.8.13",
+    "phonemizer",
+    "espeakng-loader",
+    "soundfile",
+]
+
 [project.urls]
 Homepage = "https://github.com/diamonddime/heyclaude"
 Repository = "https://github.com/diamonddime/heyclaude"

@@ -30,6 +30,9 @@ _lock = asyncio.Lock()
 MAX_VOICE_SECONDS = 300
 MAX_VOICE_BYTES = 20 * 1024 * 1024
 
+# Telegram's getFile caps downloads at 20MB; reject bigger files up front.
+MAX_DOC_BYTES = 20 * 1024 * 1024
+
 USAGE_LIMIT_MSG = (
     "You've hit your Claude usage limit. It resets later — you can stop sending "
     "for now, your session is saved."
@@ -91,6 +94,46 @@ def apply_command(cmd: dict) -> str:
     return "Unknown command."
 
 
+# --- shared prompt path (voice transcript or typed text) -------------------
+async def _handle_prompt(update: Update, text: str, echo: str) -> None:
+    """Apply a command, or run Claude for `text` and speak the reply.
+
+    Shared by voice notes (after transcription) and typed text messages so the
+    two channels behave identically. `echo` is prepended to the working ack —
+    voice echoes the transcript back so the driver hears what was understood.
+    All Claude error paths are handled here so neither channel strands you.
+    """
+    try:
+        # a command (e.g. "use opus", "set effort to high") is applied instead
+        # of being sent to Claude.
+        cmd = commands.parse_command(text)
+        if cmd:
+            reply = apply_command(cmd)
+            await update.message.reply_text(f"⚙️ {text}\n{reply}")
+            await _send_voice(update, reply)
+            return
+
+        # instant ack so you're not driving in silence
+        await update.message.reply_text(f"{echo}🔧 working…")
+
+        # run Claude with the current runtime effort + model, then speak it
+        async with _lock:
+            result = await asyncio.to_thread(
+                ask_claude, text, SESSION_FILE, runtime.get("effort"), runtime.get("model")
+            )
+        await _send_voice(update, result)
+    except ClaudeUsageLimitError:
+        # Persistent — telling the driver to STOP retrying is the real safety win.
+        log.warning("claude usage limit hit")
+        await _safe_say(update, USAGE_LIMIT_MSG)
+    except ClaudeAuthError:
+        log.warning("claude not authenticated")
+        await _safe_say(update, AUTH_MSG)
+    except Exception:  # never strand the driver in silence
+        log.exception("task failed")
+        await _safe_say(update, BROKE_MSG)
+
+
 # --- voice (prompt or spoken command) --------------------------------------
 async def on_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not _allowed(update):
@@ -107,8 +150,8 @@ async def on_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _safe_say(update, "That voice note is too large to process.")
         return
 
+    # download + transcribe
     try:
-        # 1. download + transcribe
         tg_file = await voice.get_file()
         fd, in_path = tempfile.mkstemp(suffix=".oga")
         os.close(fd)
@@ -118,39 +161,112 @@ async def on_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         finally:
             if os.path.exists(in_path):
                 os.remove(in_path)
-
-        if not text:
-            await update.message.reply_text("🤔 Didn't catch that — try again.")
-            return
-
-        # 2. a spoken command (e.g. "use opus", "set effort to high") is applied
-        #    instead of being sent to Claude.
-        cmd = commands.parse_command(text)
-        if cmd:
-            reply = apply_command(cmd)
-            await update.message.reply_text(f"⚙️ {text}\n{reply}")
-            await _send_voice(update, reply)
-            return
-
-        # 3. instant ack so you're not driving in silence
-        await update.message.reply_text(f"🎤 {text}\n🔧 working…")
-
-        # 4. run Claude with the current runtime effort + model, then speak it
-        async with _lock:
-            result = await asyncio.to_thread(
-                ask_claude, text, SESSION_FILE, runtime.get("effort"), runtime.get("model")
-            )
-        await _send_voice(update, result)
-    except ClaudeUsageLimitError:
-        # Persistent — telling the driver to STOP retrying is the real safety win.
-        log.warning("claude usage limit hit")
-        await _safe_say(update, USAGE_LIMIT_MSG)
-    except ClaudeAuthError:
-        log.warning("claude not authenticated")
-        await _safe_say(update, AUTH_MSG)
-    except Exception:  # never strand the driver in silence — covers STT/download too
-        log.exception("task failed")
+    except Exception:  # covers download + STT failures
+        log.exception("voice download/transcribe failed")
         await _safe_say(update, BROKE_MSG)
+        return
+
+    if not text:
+        await update.message.reply_text("🤔 Didn't catch that — try again.")
+        return
+
+    await _handle_prompt(update, text, echo=f"🎤 {text}\n")
+
+
+# --- text (typed prompt or command) ----------------------------------------
+async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not _allowed(update):
+        user = update.effective_user
+        log.warning("blocked update from %s", user and user.id)
+        return
+
+    text = (update.message.text or "").strip()
+    if not text:
+        return
+
+    await _handle_prompt(update, text, echo="")
+
+
+# --- files (documents + photos) --------------------------------------------
+def _safe_name(name: str) -> str:
+    """basename only (no path traversal) + a filesystem-friendly charset."""
+    name = os.path.basename(name or "").replace("\x00", "").strip()
+    kept = "".join(c for c in name if c.isalnum() or c in " ._-()[]").strip()
+    return (kept or "file")[:128]
+
+
+def _inbox_dest(name: str, unique: str):
+    """A collision-free path under WORK_DIR/inbox for an incoming attachment."""
+    inbox = WORK_DIR / "inbox"
+    inbox.mkdir(parents=True, exist_ok=True)
+    dest = inbox / _safe_name(name)
+    if dest.exists():
+        dest = inbox / f"{unique}_{dest.name}"
+    return dest
+
+
+async def _dispatch_file(update: Update, dest, caption: str, default: str, echo: str) -> None:
+    """Hand a saved attachment to Claude: the caption is the instruction, or a
+    sensible default if there's none. Claude opens the file with its own tools."""
+    if caption:
+        prompt = f'I received a file you sent and saved it to "{dest}". Your note about it: {caption}'
+    else:
+        prompt = f'I received a file you sent and saved it to "{dest}". {default}'
+    await _handle_prompt(update, prompt, echo=echo)
+
+
+async def on_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not _allowed(update):
+        user = update.effective_user
+        log.warning("blocked update from %s", user and user.id)
+        return
+
+    doc = update.message.document
+    if doc.file_size and doc.file_size > MAX_DOC_BYTES:
+        await _safe_say(update, "That file is too big — Telegram caps me at 20 megabytes.")
+        return
+
+    try:
+        tg_file = await doc.get_file()
+        dest = _inbox_dest(doc.file_name or doc.file_unique_id, doc.file_unique_id)
+        await tg_file.download_to_drive(str(dest))
+    except Exception:
+        log.exception("document download failed")
+        await _safe_say(update, BROKE_MSG)
+        return
+
+    await _dispatch_file(
+        update, dest, (update.message.caption or "").strip(),
+        default="Open and read it, then tell me what it is and what's in it.",
+        echo=f"📎 {dest.name}\n",
+    )
+
+
+async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not _allowed(update):
+        user = update.effective_user
+        log.warning("blocked update from %s", user and user.id)
+        return
+
+    photos = update.message.photo
+    if not photos:
+        return
+    photo = photos[-1]  # last entry is the highest-resolution size
+
+    try:
+        tg_file = await photo.get_file()
+        dest = _inbox_dest(f"photo_{photo.file_unique_id}.jpg", photo.file_unique_id)
+        await tg_file.download_to_drive(str(dest))
+    except Exception:
+        log.exception("photo download failed")
+        await _safe_say(update, BROKE_MSG)
+        return
+
+    await _dispatch_file(
+        update, dest, (update.message.caption or "").strip(),
+        default="Look at this image and describe what's in it.",
+        echo="🖼 photo\n",
+    )
 
 
 # --- slash commands --------------------------------------------------------
@@ -233,6 +349,13 @@ def main():
     app.add_handler(CommandHandler("reset", cmd_reset))
     app.add_handler(CommandHandler(["help", "start"], cmd_help))
     app.add_handler(MessageHandler(filters.VOICE, on_voice))
+    # Plain typed text (but not slash commands, which the CommandHandlers above
+    # already own) goes to Claude just like a transcribed voice note.
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
+    # Sent files (txt, markdown, PDF, code, …) and photos are saved into the
+    # workspace so Claude can open them with its own tools.
+    app.add_handler(MessageHandler(filters.Document.ALL, on_document))
+    app.add_handler(MessageHandler(filters.PHOTO, on_photo))
     app.add_error_handler(_on_error)
     log.info("Hey Claude running. Send a voice note.")
     # bootstrap_retries=-1: a network blip during startup (getMe/Initialize)

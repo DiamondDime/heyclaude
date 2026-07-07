@@ -163,19 +163,30 @@ environment.
 
 ## Text-to-speech backends
 
-heyclaude can speak its replies two ways:
+heyclaude can speak its replies three ways (set `[tts].backend` in your config):
 
-- **`say`** — macOS's built-in speech (voice `Samantha`). Zero setup, no account,
-  works offline. Robotic but fine.
-- **`elevenlabs`** — natural, human-sounding voices. Needs an API key. During
-  `heyclaude init` the bot lists your available ElevenLabs voices so you can pick
-  one.
+- **`kokoro`** *(recommended)* — a local neural voice (Kokoro-82M via mlx-audio)
+  that runs on Apple Silicon. **Natural intonation, free, unlimited, offline —
+  no quota.** Install the extra once:
+
+  ```bash
+  pip install 'heyclaude[kokoro]'
+  brew install espeak-ng        # for out-of-dictionary words (or the bundled loader covers it)
+  ```
+
+  Pick a voice with `[tts.kokoro].voice` (e.g. `af_heart`, `am_adam`, `bf_emma`,
+  `bm_george`). First reply loads the model (~330 MB, one-time download).
+- **`elevenlabs`** — cloud, very human, but **metered** (the free tier is ~10k
+  credits/month ≈ a handful of replies). Needs an API key; if the quota runs out
+  mid-reply it automatically falls back to `say` so you still hear the answer.
+- **`say`** — macOS built-in speech. Zero setup, works offline, but robotic. This
+  is also the universal fallback if `kokoro`/`elevenlabs` ever fail.
 
 **Get a free ElevenLabs API key: https://try.elevenlabs.io/ihajsceo1jo8**
 
 > That's a referral link — signing up through it supports heyclaude at no extra
-> cost to you. The tool works identically with any ElevenLabs key, or with the
-> free local `say` voice, so use whatever you prefer.
+> cost to you. For most people the free local **`kokoro`** voice is the best
+> default; ElevenLabs is there when you want a specific cloud voice.
 
 ---
 

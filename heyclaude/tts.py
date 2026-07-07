@@ -19,6 +19,11 @@ from .config import (
     ELEVENLABS_API_KEY,
     ELEVENLABS_VOICE_ID,
     ELEVENLABS_MODEL,
+    KOKORO_VOICE,
+    KOKORO_MODEL,
+    KOKORO_LANG,
+    KOKORO_SPEED,
+    KOKORO_SAMPLE_RATE,
 )
 
 
@@ -105,14 +110,79 @@ def _synthesize_elevenlabs(spoken: str) -> str:
     return mp3
 
 
+# ---------------------------------------------------------------------------
+# Backend: Kokoro (local neural, natural — Apple Silicon via MLX, free/offline)
+# ---------------------------------------------------------------------------
+def _ensure_espeak() -> None:
+    """Point misaki/phonemizer at the espeak-ng library so out-of-dictionary
+    words (function names, jargon) get phonemized instead of silently skipped."""
+    if os.environ.get("PHONEMIZER_ESPEAK_LIBRARY"):
+        return
+    for cand in (
+        "/opt/homebrew/lib/libespeak-ng.dylib",
+        "/usr/local/lib/libespeak-ng.dylib",
+        "/usr/lib/libespeak-ng.dylib",
+    ):
+        if os.path.exists(cand):
+            os.environ["PHONEMIZER_ESPEAK_LIBRARY"] = cand
+            return
+    try:  # fall back to the pip-bundled library
+        import espeakng_loader
+        os.environ["PHONEMIZER_ESPEAK_LIBRARY"] = espeakng_loader.get_library_path()
+    except Exception:
+        pass
+
+
+@lru_cache(maxsize=1)
+def _kokoro_model():
+    """Load Kokoro once (lazy — keeps mlx-audio out of the import path for
+    non-Kokoro installs) and cache it for the process lifetime."""
+    _ensure_espeak()
+    from mlx_audio.tts.utils import load_model
+    return load_model(KOKORO_MODEL)
+
+
+def _synthesize_kokoro(spoken: str) -> str:
+    """Return path to a WAV synthesized locally by Kokoro (mlx-audio)."""
+    import numpy as np
+    import soundfile as sf
+
+    model = _kokoro_model()
+    segments = list(
+        model.generate(text=spoken, voice=KOKORO_VOICE, speed=KOKORO_SPEED, lang_code=KOKORO_LANG)
+    )
+    audio = (
+        np.concatenate([np.asarray(s.audio, dtype=np.float32).reshape(-1) for s in segments])
+        if segments
+        else np.empty(0, dtype=np.float32)
+    )
+    if audio.size == 0:
+        raise RuntimeError("Kokoro produced no audio")
+    fd, wav = tempfile.mkstemp(suffix=".wav")
+    os.close(fd)
+    try:
+        sf.write(wav, audio, KOKORO_SAMPLE_RATE)
+    except Exception:
+        if os.path.exists(wav):
+            os.remove(wav)
+        raise
+    return wav
+
+
 def _synthesize(spoken: str, voice: str) -> str:
+    # Any cloud/model backend runs AFTER claude already did the work, so a failure
+    # must NOT lose the answer — always fall back to local `say`, which needs no
+    # network, quota, or model. (say never falls back; it IS the floor.)
+    if TTS_BACKEND == "kokoro":
+        try:
+            return _synthesize_kokoro(spoken)
+        except Exception as exc:
+            log.warning("Kokoro TTS failed (%s); falling back to local `say`.", exc)
+            return _synthesize_say(spoken, voice)
     if TTS_BACKEND == "elevenlabs":
         try:
             return _synthesize_elevenlabs(spoken)
         except Exception as exc:
-            # ElevenLabs runs AFTER claude already did the work — a quota/401/429
-            # here must NOT lose the answer. `say` is local, needs no network or
-            # quota, so fall back to it and still speak the reply.
             log.warning("ElevenLabs TTS failed (%s); falling back to local `say`.", exc)
             return _synthesize_say(spoken, voice)
     return _synthesize_say(spoken, voice)
@@ -123,7 +193,7 @@ def _synthesize(spoken: str, voice: str) -> str:
 # ---------------------------------------------------------------------------
 def to_voice_ogg(text: str, voice: str = DEFAULT_TTS_VOICE) -> str:
     spoken = strip_for_speech(text) or "Done."
-    raw = _synthesize(spoken, voice)  # AIFF (say) or MP3 (elevenlabs)
+    raw = _synthesize(spoken, voice)  # WAV (kokoro), AIFF (say) or MP3 (elevenlabs)
     fd, ogg = tempfile.mkstemp(suffix=".ogg")
     os.close(fd)
     success = False

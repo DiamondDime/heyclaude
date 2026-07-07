@@ -81,6 +81,7 @@ _telegram = _section("telegram")
 _tts = _section("tts")
 _tts_eleven = _section("tts", "elevenlabs")
 _tts_say = _section("tts", "say")
+_tts_kokoro = _section("tts", "kokoro")
 _claude = _section("claude")
 
 
@@ -133,7 +134,8 @@ VOICE = DEFAULT_TTS_VOICE
 OPUS_BITRATE = "32k"
 OPUS_CHANNELS = 1
 
-# TTS backend: "say" (local macOS, robotic, free) or "elevenlabs" (cloud, human).
+# TTS backend: "kokoro" (local neural, natural, free), "elevenlabs" (cloud,
+# human, metered) or "say" (local macOS, robotic, free).
 # Precedence: env HEYCLAUDE_TTS_BACKEND > [tts].backend > "say".
 TTS_BACKEND = (
     os.environ.get("HEYCLAUDE_TTS_BACKEND", "") or _toml_str(_tts.get("backend"), "say")
@@ -155,6 +157,30 @@ ELEVENLABS_MODEL = (
     os.environ.get("ELEVENLABS_MODEL", "")
     or _toml_str(_tts_eleven.get("model"), "eleven_turbo_v2_5")
 ).strip()
+
+# Kokoro (local neural TTS via mlx-audio, Apple Silicon). Free, unlimited, runs
+# offline — no quota like ElevenLabs. Voices include af_heart, af_bella,
+# am_adam, am_michael, bf_emma, bm_george (see the Kokoro model card).
+# Precedence: env HEYCLAUDE_KOKORO_VOICE > [tts.kokoro].voice > "af_heart".
+KOKORO_VOICE = (
+    os.environ.get("HEYCLAUDE_KOKORO_VOICE", "")
+    or _toml_str(_tts_kokoro.get("voice"), "af_heart")
+).strip()
+KOKORO_MODEL = (
+    os.environ.get("HEYCLAUDE_KOKORO_MODEL", "")
+    or _toml_str(_tts_kokoro.get("model"), "mlx-community/Kokoro-82M-bf16")
+).strip()
+# lang_code: 'a' = American English, 'b' = British English.
+KOKORO_LANG = (
+    os.environ.get("HEYCLAUDE_KOKORO_LANG", "") or _toml_str(_tts_kokoro.get("lang"), "a")
+).strip()
+try:
+    KOKORO_SPEED = float(
+        os.environ.get("HEYCLAUDE_KOKORO_SPEED", "") or _tts_kokoro.get("speed", 1.0)
+    )
+except (TypeError, ValueError):
+    KOKORO_SPEED = 1.0
+KOKORO_SAMPLE_RATE = 24000  # Kokoro outputs 24 kHz audio
 
 # ffmpeg is the Homebrew build, not /usr/bin. Resolve via PATH, fall back to the
 # known Homebrew location.
